@@ -1,6 +1,6 @@
 "use client";
 
-import { formatCurrency, formatNumber, formatPercentage } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { CHART_COLORS } from "@/lib/constants";
 
 export default function AnalyticsPage() {

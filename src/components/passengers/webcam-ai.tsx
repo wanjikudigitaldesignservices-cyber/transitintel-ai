@@ -16,7 +16,33 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
   const [modelError, setModelError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   
-  const [passengerCount, setPassengerCount] = useState(0);
+  const [cumulativeCount, setCumulativeCount] = useState(0);
+  const [currentFrameCount, setCurrentFrameCount] = useState(0);
+  const previousFrameCount = useRef(0);
+
+  useEffect(() => {
+    const today = new Date().toDateString();
+    try {
+      const stored = localStorage.getItem("transitintel_passenger_current");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.date === today) {
+          setCumulativeCount(parsed.count);
+        } else {
+          // Save to history
+          const history = JSON.parse(localStorage.getItem("transitintel_passenger_history") || "[]");
+          history.push(parsed);
+          localStorage.setItem("transitintel_passenger_history", JSON.stringify(history));
+          // Reset
+          localStorage.setItem("transitintel_passenger_current", JSON.stringify({ date: today, count: 0 }));
+        }
+      } else {
+        localStorage.setItem("transitintel_passenger_current", JSON.stringify({ date: today, count: 0 }));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
 
   useEffect(() => {
     let animationFrameId: number;
@@ -86,11 +112,23 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
         
         // Filter for "person" class
         const persons = predictions.filter((p) => p.class === "person");
+        const countInFrame = persons.length;
         
-        setPassengerCount(persons.length);
-        if (onCountUpdate) {
-          onCountUpdate(persons.length);
+        setCurrentFrameCount(countInFrame);
+
+        if (countInFrame > previousFrameCount.current) {
+          const diff = countInFrame - previousFrameCount.current;
+          setCumulativeCount(prev => {
+            const next = prev + diff;
+            const today = new Date().toDateString();
+            localStorage.setItem("transitintel_passenger_current", JSON.stringify({ date: today, count: next }));
+            if (onCountUpdate) {
+              onCountUpdate(next);
+            }
+            return next;
+          });
         }
+        previousFrameCount.current = countInFrame;
 
         // Draw bounding boxes
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -151,9 +189,15 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
         </div>
         
         {!isModelLoading && !cameraError && (
-          <div className="rounded-xl bg-black/60 p-4 backdrop-blur-md border border-white/10">
-            <p className="text-xs text-white/70 uppercase tracking-wider font-semibold mb-1">Detecting</p>
-            <p className="text-3xl font-bold text-emerald-400">{passengerCount} Passengers</p>
+          <div className="flex gap-4">
+            <div className="rounded-xl bg-black/60 p-4 backdrop-blur-md border border-white/10">
+              <p className="text-xs text-white/70 uppercase tracking-wider font-semibold mb-1">Total Today</p>
+              <p className="text-3xl font-bold text-emerald-400">{cumulativeCount}</p>
+            </div>
+            <div className="rounded-xl bg-black/60 p-4 backdrop-blur-md border border-white/10">
+              <p className="text-xs text-white/70 uppercase tracking-wider font-semibold mb-1">In Frame</p>
+              <p className="text-3xl font-bold text-white/90">{currentFrameCount}</p>
+            </div>
           </div>
         )}
       </div>

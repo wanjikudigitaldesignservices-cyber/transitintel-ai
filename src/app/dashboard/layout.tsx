@@ -115,6 +115,7 @@ export default function DashboardLayout({
     }
     try {
       const parsed = JSON.parse(session);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUser(parsed.user);
     } catch {
       router.push("/login");

@@ -58,7 +58,7 @@ export default function RevenuePage() {
         <div className="glass-card col-span-2 p-6 dark:border-white/5 dark:bg-white/[0.02]">
           <h3 className="mb-6 text-lg font-semibold text-surface-900 dark:text-white">Daily Revenue Trend</h3>
           <div className="flex items-end gap-3 h-48">
-            {dailyRevenue.map((d, i) => (
+            {dailyRevenue.map((d) => (
               <div key={d.date} className="flex flex-1 flex-col items-center gap-2">
                 <span className="text-xs text-surface-800/40 dark:text-white/30">{(d.amount / 1000000).toFixed(1)}M</span>
                 <div className="w-full rounded-t-lg bg-gradient-to-t from-brand-600 to-brand-400" style={{ height: `${(d.amount / maxDaily) * 100}%` }} />

@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { formatCurrency, formatNumber, statusColors } from "@/lib/utils";
+import { formatNumber, statusColors } from "@/lib/utils";
 import { VEHICLE_TYPES, FUEL_TYPES, VEHICLE_STATUSES } from "@/lib/constants";
 
 // Demo fleet data
