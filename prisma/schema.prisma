@@ -1,0 +1,719 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ORGANIZATION & AUTH
+// ============================================================================
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logo        String?
+  address     String?
+  city        String?
+  country     String   @default("Kenya")
+  phone       String?
+  email       String?
+  website     String?
+  timezone    String   @default("Africa/Nairobi")
+  currency    String   @default("KES")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  vehicles    Vehicle[]
+  drivers     Driver[]
+  conductors  Conductor[]
+  routes      Route[]
+  trips       Trip[]
+  revenue     RevenueRecord[]
+  maintenance MaintenanceRecord[]
+  fuelRecords FuelRecord[]
+  notifications Notification[]
+  auditLogs   AuditLog[]
+  alerts      Alert[]
+  passengerCounts PassengerCount[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String
+  passwordHash   String
+  avatar         String?
+  phone          String?
+  role           UserRole  @default(VIEWER)
+  isActive       Boolean   @default(true)
+  emailVerified  DateTime?
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  auditLogs      AuditLog[]
+  notifications  Notification[]
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("users")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  DISPATCHER
+  DRIVER
+  CONDUCTOR
+  ANALYST
+  VIEWER
+}
+
+// ============================================================================
+// FLEET MANAGEMENT
+// ============================================================================
+
+model Vehicle {
+  id               String        @id @default(cuid())
+  registrationNo   String        @unique
+  fleetNumber       String?
+  make             String
+  model            String
+  year             Int
+  type             VehicleType   @default(BUS)
+  capacity         Int
+  fuelType         FuelType      @default(DIESEL)
+  chassisNumber    String?       @unique
+  engineNumber     String?
+  color            String?
+  insuranceExpiry  DateTime?
+  inspectionExpiry DateTime?
+  status           VehicleStatus @default(ACTIVE)
+  mileage          Float         @default(0)
+  purchaseDate     DateTime?
+  purchasePrice    Float?
+  image            String?
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  organizationId   String
+  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  assignments      Assignment[]
+  trips            Trip[]
+  gpsRecords       GpsRecord[]
+  maintenance      MaintenanceRecord[]
+  fuelRecords      FuelRecord[]
+  passengerCounts  PassengerCount[]
+  alerts           Alert[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([registrationNo])
+  @@map("vehicles")
+}
+
+enum VehicleType {
+  BUS
+  MINIBUS
+  MATATU
+  COACH
+  SHUTTLE
+  VAN
+}
+
+enum VehicleStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  DECOMMISSIONED
+  SUSPENDED
+}
+
+enum FuelType {
+  DIESEL
+  PETROL
+  ELECTRIC
+  HYBRID
+  CNG
+}
+
+// ============================================================================
+// DRIVER MANAGEMENT
+// ============================================================================
+
+model Driver {
+  id              String       @id @default(cuid())
+  employeeId      String       @unique
+  firstName       String
+  lastName        String
+  email           String?
+  phone           String
+  licenseNumber   String       @unique
+  licenseClass    String
+  licenseExpiry   DateTime
+  nationalId      String?      @unique
+  dateOfBirth     DateTime?
+  address         String?
+  emergencyContact String?
+  emergencyPhone  String?
+  photo           String?
+  status          DriverStatus @default(ACTIVE)
+  rating          Float        @default(5.0)
+  hireDate        DateTime     @default(now())
+  terminationDate DateTime?
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  assignments     Assignment[]
+  trips           Trip[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([licenseNumber])
+  @@map("drivers")
+}
+
+enum DriverStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+}
+
+// ============================================================================
+// CONDUCTOR MANAGEMENT
+// ============================================================================
+
+model Conductor {
+  id              String          @id @default(cuid())
+  employeeId      String          @unique
+  firstName       String
+  lastName        String
+  email           String?
+  phone           String
+  nationalId      String?         @unique
+  dateOfBirth     DateTime?
+  address         String?
+  photo           String?
+  status          ConductorStatus @default(ACTIVE)
+  rating          Float           @default(5.0)
+  hireDate        DateTime        @default(now())
+  terminationDate DateTime?
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  organizationId  String
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  assignments     Assignment[]
+  trips           Trip[]
+  revenue         RevenueRecord[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("conductors")
+}
+
+enum ConductorStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+}
+
+// ============================================================================
+// ROUTE MANAGEMENT
+// ============================================================================
+
+model Route {
+  id              String      @id @default(cuid())
+  code            String      @unique
+  name            String
+  description     String?
+  origin          String
+  destination     String
+  distance        Float?      // in kilometers
+  estimatedTime   Int?        // in minutes
+  baseFare        Float
+  status          RouteStatus @default(ACTIVE)
+  color           String?     // for map display
+  polyline        String?     // encoded polyline for map
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  stops           RouteStop[]
+  schedules       Schedule[]
+  trips           Trip[]
+  assignments     Assignment[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("routes")
+}
+
+enum RouteStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PLANNED
+}
+
+model RouteStop {
+  id          String   @id @default(cuid())
+  name        String
+  latitude    Float
+  longitude   Float
+  sequence    Int
+  fareFromOrigin Float @default(0)
+  estimatedTimeFromOrigin Int @default(0) // minutes
+  isTerminal  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  routeId     String
+  route       Route    @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@unique([routeId, sequence])
+  @@index([routeId])
+  @@map("route_stops")
+}
+
+model Schedule {
+  id            String      @id @default(cuid())
+  departureTime String      // HH:mm format
+  arrivalTime   String      // HH:mm format
+  daysOfWeek    Int[]       // 0=Sun, 1=Mon, ..., 6=Sat
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  routeId       String
+  route         Route       @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@index([routeId])
+  @@map("schedules")
+}
+
+// ============================================================================
+// ASSIGNMENTS & TRIPS
+// ============================================================================
+
+model Assignment {
+  id            String           @id @default(cuid())
+  date          DateTime         @db.Date
+  shiftType     ShiftType        @default(FULL_DAY)
+  status        AssignmentStatus @default(SCHEDULED)
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  vehicleId     String
+  vehicle       Vehicle          @relation(fields: [vehicleId], references: [id])
+  driverId      String
+  driver        Driver           @relation(fields: [driverId], references: [id])
+  conductorId   String?
+  conductor     Conductor?       @relation(fields: [conductorId], references: [id])
+  routeId       String
+  route         Route            @relation(fields: [routeId], references: [id])
+
+  trips         Trip[]
+
+  @@index([vehicleId])
+  @@index([driverId])
+  @@index([conductorId])
+  @@index([routeId])
+  @@index([date])
+  @@map("assignments")
+}
+
+enum ShiftType {
+  MORNING
+  AFTERNOON
+  EVENING
+  NIGHT
+  FULL_DAY
+}
+
+enum AssignmentStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Trip {
+  id              String     @id @default(cuid())
+  tripNumber      Int
+  startTime       DateTime?
+  endTime         DateTime?
+  status          TripStatus @default(SCHEDULED)
+  passengerCount  Int        @default(0)
+  revenue         Float      @default(0)
+  distance        Float?     // km
+  startOdometer   Float?
+  endOdometer     Float?
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vehicleId       String
+  vehicle         Vehicle    @relation(fields: [vehicleId], references: [id])
+  driverId        String
+  driver          Driver     @relation(fields: [driverId], references: [id])
+  conductorId     String?
+  conductor       Conductor? @relation(fields: [conductorId], references: [id])
+  routeId         String
+  route           Route      @relation(fields: [routeId], references: [id])
+  assignmentId    String?
+  assignment      Assignment? @relation(fields: [assignmentId], references: [id])
+
+  revenueRecords  RevenueRecord[]
+  passengerCounts PassengerCount[]
+
+  @@index([organizationId])
+  @@index([vehicleId])
+  @@index([routeId])
+  @@index([startTime])
+  @@index([status])
+  @@map("trips")
+}
+
+enum TripStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DELAYED
+}
+
+// ============================================================================
+// REVENUE MANAGEMENT
+// ============================================================================
+
+model RevenueRecord {
+  id              String        @id @default(cuid())
+  amount          Float
+  currency        String        @default("KES")
+  paymentMethod   PaymentMethod @default(CASH)
+  category        RevenueCategory @default(FARE)
+  passengerCount  Int           @default(1)
+  farePerPassenger Float?
+  reference       String?
+  timestamp       DateTime      @default(now())
+  isReconciled    Boolean       @default(false)
+  reconciledAt    DateTime?
+  discrepancy     Float?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tripId          String?
+  trip            Trip?         @relation(fields: [tripId], references: [id])
+  conductorId     String?
+  conductor       Conductor?    @relation(fields: [conductorId], references: [id])
+
+  @@index([organizationId])
+  @@index([tripId])
+  @@index([conductorId])
+  @@index([timestamp])
+  @@index([isReconciled])
+  @@map("revenue_records")
+}
+
+enum PaymentMethod {
+  CASH
+  MPESA
+  CARD
+  NFC
+  QR_CODE
+  PREPAID
+}
+
+enum RevenueCategory {
+  FARE
+  LUGGAGE
+  PENALTY
+  OTHER
+}
+
+// ============================================================================
+// GPS TRACKING
+// ============================================================================
+
+model GpsRecord {
+  id          String   @id @default(cuid())
+  latitude    Float
+  longitude   Float
+  speed       Float?   // km/h
+  heading     Float?   // degrees
+  altitude    Float?
+  accuracy    Float?
+  timestamp   DateTime @default(now())
+
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@index([timestamp])
+  @@index([vehicleId, timestamp])
+  @@map("gps_records")
+}
+
+// ============================================================================
+// AI PASSENGER COUNTING
+// ============================================================================
+
+model PassengerCount {
+  id             String   @id @default(cuid())
+  boardingCount  Int      @default(0)
+  alightingCount Int      @default(0)
+  currentLoad    Int      @default(0)
+  confidence     Float?   // AI confidence score
+  method         CountMethod @default(AI_VISION)
+  timestamp      DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vehicleId      String
+  vehicle        Vehicle  @relation(fields: [vehicleId], references: [id])
+  tripId         String?
+  trip           Trip?    @relation(fields: [tripId], references: [id])
+
+  @@index([organizationId])
+  @@index([vehicleId])
+  @@index([tripId])
+  @@index([timestamp])
+  @@map("passenger_counts")
+}
+
+enum CountMethod {
+  AI_VISION
+  MANUAL
+  SENSOR
+  TICKET
+}
+
+// ============================================================================
+// MAINTENANCE
+// ============================================================================
+
+model MaintenanceRecord {
+  id              String            @id @default(cuid())
+  type            MaintenanceType
+  category        String
+  description     String
+  status          MaintenanceStatus @default(SCHEDULED)
+  priority        Priority          @default(MEDIUM)
+  scheduledDate   DateTime?
+  startDate       DateTime?
+  completionDate  DateTime?
+  cost            Float?
+  laborCost       Float?
+  partsCost       Float?
+  vendor          String?
+  odometer        Float?
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  organizationId  String
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vehicleId       String
+  vehicle         Vehicle           @relation(fields: [vehicleId], references: [id])
+
+  @@index([organizationId])
+  @@index([vehicleId])
+  @@index([status])
+  @@index([scheduledDate])
+  @@map("maintenance_records")
+}
+
+enum MaintenanceType {
+  PREVENTIVE
+  CORRECTIVE
+  EMERGENCY
+  INSPECTION
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  OVERDUE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ============================================================================
+// FUEL MANAGEMENT
+// ============================================================================
+
+model FuelRecord {
+  id              String   @id @default(cuid())
+  fuelType        FuelType
+  quantity        Float    // liters
+  unitPrice       Float
+  totalCost       Float
+  odometer        Float?
+  station         String?
+  receiptNumber   String?
+  date            DateTime
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vehicleId       String
+  vehicle         Vehicle  @relation(fields: [vehicleId], references: [id])
+
+  @@index([organizationId])
+  @@index([vehicleId])
+  @@index([date])
+  @@map("fuel_records")
+}
+
+// ============================================================================
+// NOTIFICATIONS & ALERTS
+// ============================================================================
+
+model Notification {
+  id          String             @id @default(cuid())
+  title       String
+  message     String
+  type        NotificationType
+  channel     NotificationChannel @default(IN_APP)
+  isRead      Boolean            @default(false)
+  readAt      DateTime?
+  metadata    Json?
+  createdAt   DateTime           @default(now())
+
+  userId      String
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  ERROR
+  SUCCESS
+  ALERT
+  MAINTENANCE
+  REVENUE
+  SECURITY
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+  PUSH
+}
+
+model Alert {
+  id          String       @id @default(cuid())
+  type        AlertType
+  severity    Priority
+  title       String
+  message     String
+  isResolved  Boolean      @default(false)
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vehicleId   String?
+  vehicle     Vehicle?     @relation(fields: [vehicleId], references: [id])
+
+  @@index([organizationId])
+  @@index([type])
+  @@index([isResolved])
+  @@index([createdAt])
+  @@map("alerts")
+}
+
+enum AlertType {
+  SPEEDING
+  GEOFENCE
+  MAINTENANCE_DUE
+  LICENSE_EXPIRY
+  INSURANCE_EXPIRY
+  FUEL_ANOMALY
+  REVENUE_ANOMALY
+  ROUTE_DEVIATION
+  SOS
+  SYSTEM
+}
+
+// ============================================================================
+// AUDIT LOGGING
+// ============================================================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  entity      String
+  entityId    String
+  changes     Json?
+  ipAddress   String?
+  userAgent   String?
+  timestamp   DateTime @default(now())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([timestamp])
+  @@map("audit_logs")
+}

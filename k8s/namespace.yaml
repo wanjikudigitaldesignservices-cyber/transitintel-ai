@@ -1,0 +1,10 @@
+# ============================================================================
+# TransitIntel AI — Kubernetes Namespace
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: transitintel
+  labels:
+    app.kubernetes.io/name: transitintel
+    app.kubernetes.io/part-of: transitintel-ai
