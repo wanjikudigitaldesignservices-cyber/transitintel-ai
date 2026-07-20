@@ -8,13 +8,14 @@ async function main() {
   
   // Create an organization
   const org = await prisma.organization.upsert({
-    where: { email: 'admin@transitintel.com' },
+    where: { slug: 'transitintel-hq' },
     update: {},
     create: {
       name: 'TransitIntel HQ',
+      slug: 'transitintel-hq',
       email: 'admin@transitintel.com',
       phone: '+254700000000',
-      status: 'ACTIVE',
+      isActive: true,
     },
   });
 
@@ -42,7 +43,7 @@ async function main() {
 main()
   .catch((e) => {
     console.error(e);
-    process.exit(1);
+    process.exitCode = 1;
   })
   .finally(async () => {
     await prisma.$disconnect();
