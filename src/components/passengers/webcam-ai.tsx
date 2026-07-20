@@ -120,8 +120,10 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
         console.error("Detection error:", error);
       }
 
-      // Loop
-      animationFrameId = requestAnimationFrame(detectFrame);
+      // Loop with a delay to prevent freezing the browser
+      setTimeout(() => {
+        animationFrameId = requestAnimationFrame(detectFrame);
+      }, 300); // Throttle to ~3 frames per second
     };
 
     setupAI();
