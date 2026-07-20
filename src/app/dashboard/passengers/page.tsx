@@ -1,8 +1,12 @@
 "use client";
 
 import { formatNumber } from "@/lib/utils";
+import { WebcamAI } from "@/components/passengers/webcam-ai";
+import { useState } from "react";
 
 export default function PassengersPage() {
+  const [liveCount, setLiveCount] = useState(0);
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="page-header">
@@ -15,8 +19,8 @@ export default function PassengersPage() {
       <div className="grid gap-4 sm:grid-cols-4">
         <div className="glass-card p-5 dark:border-white/5 dark:bg-white/[0.02]">
           <p className="text-sm text-surface-800/50 dark:text-white/40">Today&apos;s Passengers</p>
-          <p className="mt-1 text-2xl font-bold text-blue-500">{formatNumber(45680)}</p>
-          <p className="mt-1 text-xs text-emerald-500">+8.3% vs yesterday</p>
+          <p className="mt-1 text-2xl font-bold text-blue-500">{formatNumber(45680 + liveCount)}</p>
+          <p className="mt-1 text-xs text-emerald-500">Live AI Counting Active</p>
         </div>
         <div className="glass-card p-5 dark:border-white/5 dark:bg-white/[0.02]">
           <p className="text-sm text-surface-800/50 dark:text-white/40">Avg Load Factor</p>
@@ -32,24 +36,31 @@ export default function PassengersPage() {
         </div>
       </div>
 
-      <div className="glass-card p-8 text-center dark:border-white/5 dark:bg-white/[0.02]">
-        <div className="mx-auto max-w-md">
-          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-brand-500/10">
-            <span className="text-4xl">🤖</span>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <WebcamAI onCountUpdate={setLiveCount} />
+        </div>
+        
+        <div className="glass-card p-6 dark:border-white/5 dark:bg-white/[0.02] flex flex-col justify-center text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-500/10">
+            <span className="text-3xl">🤖</span>
           </div>
           <h3 className="text-xl font-bold text-surface-900 dark:text-white">AI Vision Module</h3>
           <p className="mt-2 text-sm text-surface-800/50 dark:text-white/40">
-            TensorFlow.js + ONNX Runtime passenger detection engine. Real-time boarding/alighting detection with 96%+ accuracy.
-            Full implementation in Phase 2 with edge deployment support.
+            TensorFlow.js + COCO-SSD object detection engine. Simulating real-time boarding detection from vehicle CCTV.
           </p>
-          <div className="mt-6 flex justify-center gap-3">
-            <div className="rounded-lg bg-surface-100 px-4 py-2 text-sm font-medium dark:bg-white/5">
-              <span className="text-surface-800/60 dark:text-white/50">Model: </span>
-              <span className="text-surface-900 dark:text-white">YOLOv8-nano</span>
+          <div className="mt-6 flex flex-col gap-3">
+            <div className="rounded-lg bg-surface-100 px-4 py-3 text-sm font-medium dark:bg-white/5 flex justify-between">
+              <span className="text-surface-800/60 dark:text-white/50">Current Load</span>
+              <span className="text-emerald-500 font-bold">{liveCount} Detected</span>
             </div>
-            <div className="rounded-lg bg-surface-100 px-4 py-2 text-sm font-medium dark:bg-white/5">
-              <span className="text-surface-800/60 dark:text-white/50">Inference: </span>
-              <span className="text-surface-900 dark:text-white">~15ms</span>
+            <div className="rounded-lg bg-surface-100 px-4 py-3 text-sm font-medium dark:bg-white/5 flex justify-between">
+              <span className="text-surface-800/60 dark:text-white/50">Model</span>
+              <span className="text-surface-900 dark:text-white font-bold">COCO-SSD</span>
+            </div>
+            <div className="rounded-lg bg-surface-100 px-4 py-3 text-sm font-medium dark:bg-white/5 flex justify-between">
+              <span className="text-surface-800/60 dark:text-white/50">Latency</span>
+              <span className="text-surface-900 dark:text-white font-bold">~15ms</span>
             </div>
           </div>
         </div>
