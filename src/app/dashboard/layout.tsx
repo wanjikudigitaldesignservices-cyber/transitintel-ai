@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { NAVIGATION } from "@/lib/constants";
+import { SocketProvider } from "@/lib/socket-provider";
 
 // SVG Icon components mapped by name
 const icons: Record<string, React.ReactNode> = {
@@ -300,7 +301,9 @@ export default function DashboardLayout({
           </header>
 
           {/* Page Content */}
-          <main className="flex-1 overflow-y-auto p-4 lg:p-6">{children}</main>
+          <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+            <SocketProvider>{children}</SocketProvider>
+          </main>
         </div>
       </div>
     </div>
