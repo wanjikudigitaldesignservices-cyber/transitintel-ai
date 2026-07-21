@@ -23,7 +23,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     // Calling io() connects to the server that served the page
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const socketInstance = (ClientIO as any)();
 
     socketInstance.on('connect', () => {

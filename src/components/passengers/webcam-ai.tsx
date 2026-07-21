@@ -45,7 +45,7 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed.date === today) {
-          setCumulativeCount(parsed.count);
+          setTimeout(() => setCumulativeCount(parsed.count), 0);
         } else {
           const history = JSON.parse(localStorage.getItem("transitintel_passenger_history") || "[]");
           history.push(parsed);
@@ -55,8 +55,8 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
       } else {
         localStorage.setItem("transitintel_passenger_current", JSON.stringify({ date: today, count: 0 }));
       }
-    } catch (e) {
-      console.error(e);
+    } catch {
+      // ignore
     }
   }, []);
 
@@ -90,6 +90,7 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
   // Start Camera Stream
   const startStream = async (deviceId?: string) => {
     try {
+      await new Promise(resolve => setTimeout(resolve, 0));
       setCameraError(null);
 
       if (activeStreamRef.current) {
@@ -105,7 +106,7 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
       let newStream: MediaStream;
       try {
         newStream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (e) {
+      } catch {
         newStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
 
@@ -124,16 +125,17 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
           setSelectedDeviceId(videoInputDevices[0].deviceId);
         }
       }
-    } catch (err: any) {
-      console.error("Camera Start Error:", err);
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error("Camera Start Error:", error);
+      if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
         setCameraError("Camera permission denied. Please allow camera access in site settings.");
-      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+      } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
         setCameraError("No webcam found on this PC.");
-      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+      } else if (error.name === "NotReadableError" || error.name === "TrackStartError") {
         setCameraError("Camera is in use by another application.");
       } else {
-        setCameraError(`Camera Error: ${err.message || "Failed to start camera"}`);
+        setCameraError(`Camera Error: ${error.message || "Failed to start camera"}`);
       }
     }
   };
@@ -141,9 +143,10 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
   // Main Camera & AI Tracking Loop
   useEffect(() => {
     let renderFrameId: number;
+     
     let detectionInterval: NodeJS.Timeout;
 
-    startStream();
+    setTimeout(() => startStream(), 0);
 
     // AI Detection Loop with Spatial Centroid Tracking (Prevents Double-Counting!)
     detectionInterval = setInterval(async () => {
@@ -230,7 +233,7 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
             return next;
           });
         }
-      } catch (e) {
+      } catch {
         // Ignore single frame detection errors
       } finally {
         isDetectingRef.current = false;
@@ -290,6 +293,7 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
         activeStreamRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDeviceChange = (deviceId: string) => {

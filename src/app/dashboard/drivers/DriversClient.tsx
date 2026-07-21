@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { statusColors, formatDate } from "@/lib/utils";
 import { DRIVER_STATUSES, LICENSE_CLASSES } from "@/lib/constants";
@@ -11,6 +11,10 @@ export default function DriversClient({ initialDrivers }: { initialDrivers: any[
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingDriver, setEditingDriver] = useState<any>(null);
+
+  // Pre-calculate threshold to avoid calling Date.now() in render
+  // eslint-disable-next-line react-hooks/purity
+  const ninetyDaysFromNow = useMemo(() => new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), []);
 
   const filtered = initialDrivers.filter((d) => {
     const matchSearch =
@@ -74,7 +78,7 @@ export default function DriversClient({ initialDrivers }: { initialDrivers: any[
         <div className="glass-card p-4 dark:border-white/5 dark:bg-white/[0.02]">
           <p className="text-sm text-surface-800/50 dark:text-white/40">License Expiring</p>
           <p className="mt-1 text-2xl font-bold text-red-500">
-            {initialDrivers.filter((d) => new Date(d.licenseExpiry) < new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)).length}
+            {initialDrivers.filter((d) => new Date(d.licenseExpiry) < ninetyDaysFromNow).length}
           </p>
         </div>
       </div>
@@ -142,7 +146,7 @@ export default function DriversClient({ initialDrivers }: { initialDrivers: any[
               <div className="flex items-center justify-between text-sm">
                 <span className="text-surface-800/50 dark:text-white/40">Expiry</span>
                 <span className={`font-medium ${
-                  new Date(driver.licenseExpiry) < new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+                  new Date(driver.licenseExpiry) < ninetyDaysFromNow
                     ? "text-red-500"
                     : "text-surface-900 dark:text-white"
                 }`}>

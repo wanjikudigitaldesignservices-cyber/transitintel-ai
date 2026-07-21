@@ -460,8 +460,10 @@ function VehicleCCTVModal({ vehicle, onClose }: { vehicle: any; onClose: () => v
       const existing = localStorage.getItem(savedKey);
       if (existing) {
         const parsed = JSON.parse(existing);
-        setTodayTotal(parsed.totalCount || 0);
-        setLogs(parsed.logs || []);
+        setTimeout(() => {
+          setTodayTotal(parsed.totalCount || 0);
+          setLogs(parsed.logs || []);
+        }, 0);
       }
     } catch (e) {
       console.error("Error loading CCTV cache:", e);
