@@ -186,6 +186,12 @@ export default function LoginPage() {
               Create one
             </Link>
           </p>
+          <div className="mt-6 text-center text-xs text-white/30">
+            By signing in, you agree to our{" "}
+            <Link href="/privacy" className="underline hover:text-white/70">
+              Privacy Policy & ODPC Data Terms
+            </Link>
+          </div>
         </div>
       </div>
     </div>

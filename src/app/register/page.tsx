@@ -259,6 +259,12 @@ export default function RegisterPage() {
               Sign In
             </Link>
           </p>
+          <div className="mt-6 text-center text-xs text-white/30">
+            By creating an account, you agree to our{" "}
+            <Link href="/privacy" className="underline hover:text-white/70">
+              Privacy Policy & ODPC Data Terms
+            </Link>
+          </div>
         </div>
       </div>
     </div>
