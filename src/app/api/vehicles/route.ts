@@ -1,87 +1,62 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { revalidateTag, revalidatePath } from "next/cache";
 import { VehicleType, FuelType, VehicleStatus } from "@prisma/client";
+import { requireAuth, WRITE_ROLES } from "@/lib/authorize";
+import { checkRateLimit, STANDARD_RATE_LIMIT } from "@/lib/rate-limit";
+import { validateBody, safeErrorResponse } from "@/lib/api-utils";
+import { vehicleSchema } from "@/lib/validators";
 
 export async function POST(req: Request) {
+  const rateLimitResult = checkRateLimit(req, STANDARD_RATE_LIMIT);
+  if (rateLimitResult) return rateLimitResult;
+
   try {
-    const session = await getServerSession(authOptions);
+    const authResult = await requireAuth(WRITE_ROLES);
+    if ("error" in authResult) return authResult.error;
+    const { organizationId } = authResult.auth;
 
-    if (!session || !session.user) {
-      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    }
+    const validation = await validateBody(req, vehicleSchema);
+    if ("error" in validation) return validation.error;
+    const data = validation.data;
 
-    const organizationId = (session.user as any).organizationId;
-    if (!organizationId) {
-      return NextResponse.json(
-        { message: "User has no organization" },
-        { status: 403 }
-      );
-    }
-
-    const body = await req.json();
-    const {
-      registrationNo,
-      fleetNumber,
-      make,
-      model,
-      year,
-      type,
-      capacity,
-      fuelType,
-      chassisNumber,
-      status,
-      notes,
-    } = body;
-
-    // Validate required fields
-    if (!registrationNo || !make || !model || !year || !capacity) {
-      return NextResponse.json(
-        { message: "Missing required fields" },
-        { status: 400 }
-      );
-    }
-
-    // Check if vehicle already exists by registration number
-    const existingVehicle = await prisma.vehicle.findUnique({
-      where: { registrationNo },
+    // Check duplicate registration number — scoped to org
+    const existingVehicle = await prisma.vehicle.findFirst({
+      where: { registrationNo: data.registrationNo, organizationId },
     });
-
     if (existingVehicle) {
       return NextResponse.json(
-        { message: "Vehicle with this registration number already exists" },
+        { message: "Vehicle with this registration number already exists in your organization" },
         { status: 400 }
       );
     }
 
     const newVehicle = await prisma.vehicle.create({
       data: {
-        registrationNo,
-        fleetNumber,
-        make,
-        model,
-        year: parseInt(year, 10),
-        type: type as VehicleType,
-        capacity: parseInt(capacity, 10),
-        fuelType: fuelType as FuelType,
-        chassisNumber,
-        status: status as VehicleStatus,
-        notes,
+        registrationNo: data.registrationNo,
+        fleetNumber: data.fleetNumber || null,
+        make: data.make,
+        model: data.model,
+        year: data.year,
+        type: data.type as VehicleType,
+        capacity: data.capacity,
+        fuelType: data.fuelType as FuelType,
+        chassisNumber: data.chassisNumber || null,
+        status: data.status as VehicleStatus,
+        purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : null,
+        purchasePrice: data.purchasePrice || null,
+        insuranceExpiry: data.insuranceExpiry ? new Date(data.insuranceExpiry) : null,
+        inspectionExpiry: data.inspectionExpiry ? new Date(data.inspectionExpiry) : null,
+        notes: data.notes || null,
         organizationId,
       },
     });
 
-    revalidateTag(`vehicles-${organizationId}`, "default");
+    revalidateTag(`vehicles-${organizationId}`, "max");
     revalidatePath("/dashboard/fleet");
 
     return NextResponse.json(newVehicle, { status: 201 });
   } catch (error) {
-    console.error("Failed to create vehicle:", error);
-    return NextResponse.json(
-      { message: "Internal Server Error" },
-      { status: 500 }
-    );
+    return safeErrorResponse(error, "Create vehicle");
   }
 }

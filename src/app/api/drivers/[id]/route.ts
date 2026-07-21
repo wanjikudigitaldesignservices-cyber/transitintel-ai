@@ -1,108 +1,82 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { revalidateTag, revalidatePath } from "next/cache";
 import { DriverStatus } from "@prisma/client";
+import { requireAuth, WRITE_ROLES, DELETE_ROLES } from "@/lib/authorize";
+import { checkRateLimit, STANDARD_RATE_LIMIT } from "@/lib/rate-limit";
+import { validateBody, safeErrorResponse } from "@/lib/api-utils";
+import { driverSchema } from "@/lib/validators";
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const rateLimitResult = checkRateLimit(req, STANDARD_RATE_LIMIT);
+  if (rateLimitResult) return rateLimitResult;
+
   try {
     const { id } = await params;
-    const session = await getServerSession(authOptions);
 
-    if (!session || !session.user) {
-      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    }
+    const authResult = await requireAuth(WRITE_ROLES);
+    if ("error" in authResult) return authResult.error;
+    const { organizationId } = authResult.auth;
 
-    const organizationId = (session.user as any).organizationId;
-
-    const driver = await prisma.driver.findUnique({
-      where: { id },
-    });
-
+    const driver = await prisma.driver.findUnique({ where: { id } });
     if (!driver || driver.organizationId !== organizationId) {
       return NextResponse.json({ message: "Driver not found" }, { status: 404 });
     }
 
-    const body = await req.json();
-    const {
-      employeeId,
-      firstName,
-      lastName,
-      email,
-      phone,
-      licenseNumber,
-      licenseClass,
-      licenseExpiry,
-      nationalId,
-      dateOfBirth,
-      status,
-      notes,
-    } = body;
+    const validation = await validateBody(req, driverSchema);
+    if ("error" in validation) return validation.error;
+    const data = validation.data;
 
     const updatedDriver = await prisma.driver.update({
       where: { id },
       data: {
-        employeeId,
-        firstName,
-        lastName,
-        email,
-        phone,
-        licenseNumber,
-        licenseClass,
-        licenseExpiry: licenseExpiry ? new Date(licenseExpiry) : undefined,
-        nationalId,
-        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-        status: status as DriverStatus,
-        notes,
+        employeeId: data.employeeId,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email || null,
+        phone: data.phone,
+        licenseNumber: data.licenseNumber,
+        licenseClass: data.licenseClass,
+        licenseExpiry: data.licenseExpiry ? new Date(data.licenseExpiry) : undefined,
+        nationalId: data.nationalId || null,
+        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+        status: data.status as DriverStatus,
+        notes: data.notes || null,
       },
     });
 
-    revalidateTag(`drivers-${organizationId}`, "default");
+    revalidateTag(`drivers-${organizationId}`, "max");
     revalidatePath("/dashboard/drivers");
 
     return NextResponse.json(updatedDriver, { status: 200 });
-  } catch (error: any) {
-    console.error("Failed to update driver:", error);
-    return NextResponse.json(
-      { message: error.message || "Internal Server Error" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return safeErrorResponse(error, "Update driver");
   }
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const rateLimitResult = checkRateLimit(req, STANDARD_RATE_LIMIT);
+  if (rateLimitResult) return rateLimitResult;
+
   try {
     const { id } = await params;
-    const session = await getServerSession(authOptions);
 
-    if (!session || !session.user) {
-      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    }
+    const authResult = await requireAuth(DELETE_ROLES);
+    if ("error" in authResult) return authResult.error;
+    const { organizationId } = authResult.auth;
 
-    const organizationId = (session.user as any).organizationId;
-
-    const driver = await prisma.driver.findUnique({
-      where: { id },
-    });
-
+    const driver = await prisma.driver.findUnique({ where: { id } });
     if (!driver || driver.organizationId !== organizationId) {
       return NextResponse.json({ message: "Driver not found" }, { status: 404 });
     }
 
-    await prisma.driver.delete({
-      where: { id },
-    });
+    await prisma.driver.delete({ where: { id } });
 
-    revalidateTag(`drivers-${organizationId}`, "default");
+    revalidateTag(`drivers-${organizationId}`, "max");
     revalidatePath("/dashboard/drivers");
 
     return NextResponse.json({ message: "Driver deleted successfully" }, { status: 200 });
-  } catch (error: any) {
-    console.error("Failed to delete driver:", error);
-    return NextResponse.json(
-      { message: error.message || "Internal Server Error" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return safeErrorResponse(error, "Delete driver");
   }
 }

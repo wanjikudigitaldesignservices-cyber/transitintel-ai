@@ -7,7 +7,7 @@ FROM node:20-alpine AS builder
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
-# Install ALL dependencies (including devDependencies needed for build like Tailwind)
+# Install ALL dependencies (including devDependencies needed for build)
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -22,7 +22,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 RUN npm run build
 
-# Stage 2: Production
+# Stage 2: Production — only copy what's needed
 FROM node:20-alpine AS runner
 WORKDIR /app
 
@@ -34,8 +34,17 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 transitintel
 RUN adduser --system --uid 1001 transitintel
 
-# Copy built app and dependencies
-COPY --from=builder --chown=transitintel:transitintel /app ./
+# Copy only production-necessary files from builder
+COPY --from=builder --chown=transitintel:transitintel /app/package.json ./
+COPY --from=builder --chown=transitintel:transitintel /app/package-lock.json ./
+COPY --from=builder --chown=transitintel:transitintel /app/node_modules ./node_modules
+COPY --from=builder --chown=transitintel:transitintel /app/.next ./.next
+COPY --from=builder --chown=transitintel:transitintel /app/public ./public
+COPY --from=builder --chown=transitintel:transitintel /app/prisma ./prisma
+COPY --from=builder --chown=transitintel:transitintel /app/server.ts ./server.ts
+COPY --from=builder --chown=transitintel:transitintel /app/tsconfig.json ./tsconfig.json
+COPY --from=builder --chown=transitintel:transitintel /app/tsconfig.server.json ./tsconfig.server.json
+COPY --from=builder --chown=transitintel:transitintel /app/next.config.ts ./next.config.ts
 
 USER transitintel
 

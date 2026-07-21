@@ -1,92 +1,73 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { revalidateTag, revalidatePath } from "next/cache";
 import { ConductorStatus } from "@prisma/client";
+import { requireAuth, WRITE_ROLES } from "@/lib/authorize";
+import { checkRateLimit, STANDARD_RATE_LIMIT } from "@/lib/rate-limit";
+import { validateBody, safeErrorResponse } from "@/lib/api-utils";
+import { conductorSchema } from "@/lib/validators";
 
 export async function POST(req: Request) {
+  // Rate limit
+  const rateLimitResult = checkRateLimit(req, STANDARD_RATE_LIMIT);
+  if (rateLimitResult) return rateLimitResult;
+
   try {
-    const session = await getServerSession(authOptions);
+    // Auth + role check — only ADMIN/MANAGER can create
+    const authResult = await requireAuth(WRITE_ROLES);
+    if ("error" in authResult) return authResult.error;
+    const { organizationId } = authResult.auth;
 
-    if (!session || !session.user) {
-      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    }
+    // Validate body with Zod
+    const validation = await validateBody(req, conductorSchema);
+    if ("error" in validation) return validation.error;
+    const data = validation.data;
 
-    const organizationId = (session.user as any).organizationId;
-    if (!organizationId) {
+    // Check for duplicate employee ID scoped to this organization
+    const existingByEmployeeId = await prisma.conductor.findFirst({
+      where: { employeeId: data.employeeId, organizationId },
+    });
+    if (existingByEmployeeId) {
       return NextResponse.json(
-        { message: "User has no organization" },
-        { status: 403 }
-      );
-    }
-
-    const body = await req.json();
-    const {
-      employeeId,
-      firstName,
-      lastName,
-      email,
-      phone,
-      nationalId,
-      dateOfBirth,
-      address,
-      status,
-      notes,
-    } = body;
-
-    // Validate required fields
-    if (!employeeId || !firstName || !lastName || !phone) {
-      return NextResponse.json(
-        { message: "Missing required fields" },
+        { message: "Conductor with this Employee ID already exists in your organization" },
         { status: 400 }
       );
     }
 
-    // Check for duplicate employee ID or national ID
-    const existingConductor = await prisma.conductor.findFirst({
-      where: {
-        OR: [
-          { employeeId },
-          ...(nationalId ? [{ nationalId }] : [])
-        ],
-      },
-    });
-
-    if (existingConductor) {
-      if (existingConductor.employeeId === employeeId) {
-        return NextResponse.json({ message: "Conductor with this Employee ID already exists" }, { status: 400 });
-      }
-      if (existingConductor.nationalId === nationalId) {
-        return NextResponse.json({ message: "Conductor with this National ID already exists" }, { status: 400 });
+    // Check for duplicate national ID if provided — scoped to org
+    if (data.nationalId) {
+      const existingByNationalId = await prisma.conductor.findFirst({
+        where: { nationalId: data.nationalId, organizationId },
+      });
+      if (existingByNationalId) {
+        return NextResponse.json(
+          { message: "Conductor with this National ID already exists in your organization" },
+          { status: 400 }
+        );
       }
     }
 
     const newConductor = await prisma.conductor.create({
       data: {
-        employeeId,
-        firstName,
-        lastName,
-        email,
-        phone,
-        nationalId,
-        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-        address,
-        status: status as ConductorStatus,
-        notes,
+        employeeId: data.employeeId,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email || null,
+        phone: data.phone,
+        nationalId: data.nationalId || null,
+        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+        address: data.address || null,
+        status: data.status as ConductorStatus,
+        notes: data.notes || null,
         organizationId,
       },
     });
 
-    revalidateTag(`conductors-${organizationId}`, "default");
+    revalidateTag(`conductors-${organizationId}`, "max");
     revalidatePath("/dashboard/conductors");
 
     return NextResponse.json(newConductor, { status: 201 });
-  } catch (error: any) {
-    console.error("Failed to create conductor:", error);
-    return NextResponse.json(
-      { message: error.message || "Internal Server Error" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return safeErrorResponse(error, "Create conductor");
   }
 }

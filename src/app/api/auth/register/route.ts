@@ -1,17 +1,40 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
+import { checkRateLimit, AUTH_RATE_LIMIT } from "@/lib/rate-limit";
+import { validateBody, safeErrorResponse } from "@/lib/api-utils";
+import { registerSchema } from "@/lib/validators";
+import { slugify } from "@/lib/utils";
 
 export async function POST(req: Request) {
-  try {
-    const { saccoName, adminName, email, password } = await req.json();
+  // Rate limit — tight limit on registration
+  const rateLimitResult = checkRateLimit(req, AUTH_RATE_LIMIT);
+  if (rateLimitResult) return rateLimitResult;
 
-    if (!saccoName || !adminName || !email || !password) {
+  try {
+    // Map incoming field names to schema field names
+    const body = await req.json();
+    const mappedBody = {
+      name: body.adminName,
+      email: body.email,
+      password: body.password,
+      organizationName: body.saccoName,
+    };
+
+    // Validate with Zod — enforces 8 chars + uppercase + number
+    const result = registerSchema.safeParse(mappedBody);
+    if (!result.success) {
+      const errors = result.error.issues.map((issue) => ({
+        field: issue.path.join("."),
+        message: issue.message,
+      }));
       return NextResponse.json(
-        { message: "All fields are required." },
+        { message: "Validation failed", errors },
         { status: 400 }
       );
     }
+
+    const { name, email, password, organizationName } = result.data;
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
@@ -25,31 +48,38 @@ export async function POST(req: Request) {
       );
     }
 
+    // Generate a unique slug — handle collisions with a counter
+    let baseSlug = slugify(organizationName);
+    if (!baseSlug) baseSlug = "org";
+    let slug = baseSlug;
+    let counter = 0;
+
+    while (await prisma.organization.findUnique({ where: { slug } })) {
+      counter++;
+      slug = `${baseSlug}-${counter}`;
+    }
+
     // Hash the password
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12);
 
     // Create Organization and User in a transaction
     await prisma.$transaction(async (tx) => {
-      // 1. Create Organization
       const org = await tx.organization.create({
         data: {
-          name: saccoName,
-          slug: saccoName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+          name: organizationName,
+          slug,
         },
       });
 
-      // 2. Create Admin User
-      const user = await tx.user.create({
+      await tx.user.create({
         data: {
           email,
-          name: adminName,
+          name,
           passwordHash,
           role: "ADMIN",
           organizationId: org.id,
         },
       });
-
-      return { org, user };
     });
 
     return NextResponse.json(
@@ -57,10 +87,6 @@ export async function POST(req: Request) {
       { status: 201 }
     );
   } catch (error) {
-    console.error("Registration error:", error);
-    return NextResponse.json(
-      { message: "Something went wrong during registration." },
-      { status: 500 }
-    );
+    return safeErrorResponse(error, "Registration");
   }
 }
