@@ -8,14 +8,26 @@ interface WebcamAIProps {
   onCountUpdate?: (count: number) => void;
 }
 
+interface TrackedPerson {
+  id: string;
+  cx: number;
+  cy: number;
+  bbox: [number, number, number, number];
+  score: number;
+  lastSeen: number;
+}
+
 export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
   const isDetectingRef = useRef(false);
-  const latestPredictionsRef = useRef<cocoSsd.DetectedObject[]>([]);
   
+  // Spatial Tracking state
+  const trackedPersonsRef = useRef<TrackedPerson[]>([]);
+  const nextTrackIdRef = useRef(1);
+
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
 
@@ -24,7 +36,6 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
   
   const [cumulativeCount, setCumulativeCount] = useState(0);
   const [currentFrameCount, setCurrentFrameCount] = useState(0);
-  const previousFrameCount = useRef(0);
 
   // Initialize count from localStorage
   useEffect(() => {
@@ -76,12 +87,11 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
     };
   }, []);
 
-  // Function to start stream for a given deviceId
+  // Start Camera Stream
   const startStream = async (deviceId?: string) => {
     try {
       setCameraError(null);
 
-      // Stop existing tracks first
       if (activeStreamRef.current) {
         activeStreamRef.current.getTracks().forEach((t) => t.stop());
         activeStreamRef.current = null;
@@ -106,7 +116,6 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
         await videoRef.current.play().catch(console.warn);
       }
 
-      // Populate devices list
       if (navigator.mediaDevices?.enumerateDevices) {
         const mediaDevices = await navigator.mediaDevices.enumerateDevices();
         const videoInputDevices = mediaDevices.filter((d) => d.kind === "videoinput");
@@ -118,25 +127,25 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
     } catch (err: any) {
       console.error("Camera Start Error:", err);
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        setCameraError("Camera permission denied. Please allow camera access in browser site settings.");
+        setCameraError("Camera permission denied. Please allow camera access in site settings.");
       } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
         setCameraError("No webcam found on this PC.");
       } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
-        setCameraError("Camera is in use by another app (e.g. Zoom, Teams).");
+        setCameraError("Camera is in use by another application.");
       } else {
         setCameraError(`Camera Error: ${err.message || "Failed to start camera"}`);
       }
     }
   };
 
-  // Start Camera ONCE on mount
+  // Main Camera & AI Tracking Loop
   useEffect(() => {
     let renderFrameId: number;
     let detectionInterval: NodeJS.Timeout;
 
     startStream();
 
-    // AI Detection Loop (Runs every 200ms = 5 FPS for AI, completely non-blocking)
+    // AI Detection Loop with Spatial Centroid Tracking (Prevents Double-Counting!)
     detectionInterval = setInterval(async () => {
       if (
         !modelRef.current ||
@@ -150,33 +159,85 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
       try {
         isDetectingRef.current = true;
         const predictions = await modelRef.current.detect(videoRef.current);
-        const persons = predictions.filter((p) => p.class === "person");
-        latestPredictionsRef.current = persons;
+        const persons = predictions.filter((p) => p.class === "person" && p.score >= 0.45);
+        const now = Date.now();
 
-        const countInFrame = persons.length;
-        setCurrentFrameCount(countInFrame);
+        let newPassengersCounted = 0;
 
-        if (countInFrame > previousFrameCount.current) {
-          const diff = countInFrame - previousFrameCount.current;
+        // Process each detected bounding box in current frame
+        persons.forEach((person) => {
+          const [x, y, width, height] = person.bbox;
+          const cx = x + width / 2;
+          const cy = y + height / 2;
+
+          // Find closest active tracked person
+          let bestMatch: TrackedPerson | null = null;
+          let minDistance = Infinity;
+
+          for (const track of trackedPersonsRef.current) {
+            const dist = Math.hypot(cx - track.cx, cy - track.cy);
+            if (dist < minDistance) {
+              minDistance = dist;
+              bestMatch = track;
+            }
+          }
+
+          // Distance threshold (140 pixels) to consider it the SAME person
+          if (bestMatch && minDistance < 140) {
+            // Update existing track position (SAME PERSON - DO NOT RE-COUNT!)
+            bestMatch.cx = cx;
+            bestMatch.cy = cy;
+            bestMatch.bbox = [x, y, width, height];
+            bestMatch.score = person.score;
+            bestMatch.lastSeen = now;
+          } else {
+            // BRAND NEW UNIQUE PASSENGER ENTERED!
+            const newTrackId = `P-${nextTrackIdRef.current++}`;
+            trackedPersonsRef.current.push({
+              id: newTrackId,
+              cx,
+              cy,
+              bbox: [x, y, width, height],
+              score: person.score,
+              lastSeen: now,
+            });
+            newPassengersCounted++;
+          }
+        });
+
+        // Hysteresis: Keep tracks active for 3.5 seconds (3500ms) to prevent double counting on brief frame drops
+        trackedPersonsRef.current = trackedPersonsRef.current.filter(
+          (track) => now - track.lastSeen < 3500
+        );
+
+        // Update live in-frame count
+        const activeInFrame = trackedPersonsRef.current.filter((t) => now - t.lastSeen < 800);
+        setCurrentFrameCount(activeInFrame.length);
+
+        // If new unique passengers were detected, increment total cumulative count ONCE
+        if (newPassengersCounted > 0) {
+          const addedCount = newPassengersCounted;
           setCumulativeCount((prev) => {
-            const next = prev + diff;
+            const next = prev + addedCount;
             const today = new Date().toDateString();
-            localStorage.setItem("transitintel_passenger_current", JSON.stringify({ date: today, count: next }));
+            localStorage.setItem(
+              "transitintel_passenger_current",
+              JSON.stringify({ date: today, count: next })
+            );
             if (onCountUpdate) {
               onCountUpdate(next);
             }
             return next;
           });
         }
-        previousFrameCount.current = countInFrame;
       } catch (e) {
-        // Ignore single frame inference errors
+        // Ignore single frame detection errors
       } finally {
         isDetectingRef.current = false;
       }
     }, 200);
 
-    // Smooth Canvas Overlay Render Loop (60 FPS)
+    // Smooth Canvas Drawing Loop (60 FPS)
     const renderCanvas = () => {
       if (videoRef.current && canvasRef.current && videoRef.current.readyState >= 2) {
         const video = videoRef.current;
@@ -190,24 +251,29 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
           }
 
           ctx.clearRect(0, 0, canvas.width, canvas.height);
+          const now = Date.now();
 
-          latestPredictionsRef.current.forEach((person) => {
-            const [x, y, width, height] = person.bbox;
-            
-            ctx.strokeStyle = "#10b981";
-            ctx.lineWidth = 3;
-            ctx.strokeRect(x, y, width, height);
+          // Draw active tracked passengers
+          trackedPersonsRef.current.forEach((person) => {
+            // Only draw if seen in last 800ms
+            if (now - person.lastSeen < 800) {
+              const [x, y, width, height] = person.bbox;
+              
+              ctx.strokeStyle = "#10b981";
+              ctx.lineWidth = 3;
+              ctx.strokeRect(x, y, width, height);
 
-            ctx.fillStyle = "#10b981";
-            ctx.fillRect(x, Math.max(0, y - 22), width, 22);
+              ctx.fillStyle = "#10b981";
+              ctx.fillRect(x, Math.max(0, y - 24), width, 24);
 
-            ctx.fillStyle = "#ffffff";
-            ctx.font = "bold 13px sans-serif";
-            ctx.fillText(
-              `Passenger (${Math.round(person.score * 100)}%)`,
-              x + 4,
-              Math.max(14, y - 6)
-            );
+              ctx.fillStyle = "#ffffff";
+              ctx.font = "bold 13px sans-serif";
+              ctx.fillText(
+                `${person.id} (${Math.round(person.score * 100)}%)`,
+                x + 4,
+                Math.max(14, y - 7)
+              );
+            }
           });
         }
       }
@@ -233,12 +299,12 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
 
   return (
     <div className="relative overflow-hidden rounded-xl bg-black border border-surface-200 dark:border-white/10 shadow-lg">
-      {/* Top Floating Control Bar */}
+      {/* Top Control Bar */}
       <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
         <div className="flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 backdrop-blur-md border border-white/10 pointer-events-auto">
           <div className={`h-2.5 w-2.5 rounded-full ${cameraError ? 'bg-red-500' : isModelLoading ? 'bg-yellow-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
           <span className="text-xs font-semibold text-white">
-            {cameraError ? "Camera Offline" : isModelLoading ? "AI Engine Loading..." : "Live Feed Active"}
+            {cameraError ? "Camera Offline" : isModelLoading ? "AI Engine Loading..." : "AI Passenger Counter Active"}
           </span>
         </div>
 
@@ -291,7 +357,7 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
           {isModelLoading && !cameraError && (
             <div className="absolute top-14 left-4 z-20 flex items-center gap-2 bg-black/70 border border-white/10 px-3 py-1.5 rounded-lg text-xs text-amber-300 backdrop-blur-md">
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
-              <span>AI passenger detection initializing...</span>
+              <span>Initializing Spatial Passenger Tracker...</span>
             </div>
           )}
         </div>
