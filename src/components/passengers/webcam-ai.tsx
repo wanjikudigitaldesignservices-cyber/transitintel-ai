@@ -12,6 +12,8 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
+  const isDetectingRef = useRef(false);
+  const latestPredictionsRef = useRef<cocoSsd.DetectedObject[]>([]);
   
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
@@ -53,7 +55,6 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
     const getDevices = async () => {
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-          console.warn("enumerateDevices() not supported.");
           return;
         }
         const mediaDevices = await navigator.mediaDevices.enumerateDevices();
@@ -75,12 +76,16 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
     };
   }, [selectedDeviceId]);
 
-  // 2. Initialize TensorFlow AI Model in background
+  // 2. Initialize TensorFlow AI Model in background with WebGL acceleration
   useEffect(() => {
     let isMounted = true;
     const initModel = async () => {
       try {
         await tf.ready();
+        // Set WebGL backend for GPU acceleration if available
+        if (tf.getBackend() !== "webgl") {
+          await tf.setBackend("webgl").catch(() => tf.setBackend("cpu"));
+        }
         const loadedModel = await cocoSsd.load({ base: "lite_mobilenet_v2" });
         if (isMounted) {
           modelRef.current = loadedModel;
@@ -90,7 +95,7 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
         console.error("Model Load Error:", err);
         if (isMounted) {
           setIsModelLoading(false);
-          setModelError("AI Model failed to load (using default video feed)");
+          setModelError("AI Model failed to load (running raw camera feed)");
         }
       }
     };
@@ -100,18 +105,22 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
     };
   }, []);
 
-  // 3. Start Camera and Detection Loop
+  // 3. Start Camera and Throttled Detection Loop
   useEffect(() => {
-    let animationFrameId: number;
+    let renderFrameId: number;
+    let detectionInterval: NodeJS.Timeout;
     let stream: MediaStream | null = null;
 
     const startCamera = async () => {
       try {
         setCameraError(null);
         
-        const videoConstraints: MediaTrackConstraints = selectedDeviceId
-          ? { deviceId: { ideal: selectedDeviceId } }
-          : { facingMode: "user" };
+        const videoConstraints: MediaTrackConstraints = {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 60, max: 60 },
+          ...(selectedDeviceId ? { deviceId: { ideal: selectedDeviceId } } : { facingMode: "user" }),
+        };
 
         try {
           stream = await navigator.mediaDevices.getUserMedia({
@@ -119,7 +128,6 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
             audio: false,
           });
         } catch (e) {
-          // Fallback to simple video
           stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
 
@@ -127,15 +135,18 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play().catch(console.warn);
 
-          // Enumerate devices after permission granted to get proper camera labels
+          // Update camera list
           if (navigator.mediaDevices?.enumerateDevices) {
             const mediaDevices = await navigator.mediaDevices.enumerateDevices();
             const videoInputDevices = mediaDevices.filter(d => d.kind === "videoinput");
             setDevices(videoInputDevices);
           }
 
-          // Start detection loop
-          detectFrame();
+          // Start 60 FPS canvas render loop
+          renderCanvasOverlay();
+
+          // Start throttled non-blocking AI detection loop (runs every 150ms = ~6-7 FPS for AI)
+          detectionInterval = setInterval(runAiDetection, 150);
         }
       } catch (err: any) {
         console.error("Camera Error:", err);
@@ -151,7 +162,48 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
       }
     };
 
-    const detectFrame = async () => {
+    // AI Detection runs asynchronously without blocking video playback!
+    const runAiDetection = async () => {
+      if (
+        !modelRef.current ||
+        !videoRef.current ||
+        videoRef.current.readyState < 2 ||
+        isDetectingRef.current
+      ) {
+        return;
+      }
+
+      try {
+        isDetectingRef.current = true;
+        const predictions = await modelRef.current.detect(videoRef.current);
+        const persons = predictions.filter((p) => p.class === "person");
+        latestPredictionsRef.current = persons;
+
+        const countInFrame = persons.length;
+        setCurrentFrameCount(countInFrame);
+
+        if (countInFrame > previousFrameCount.current) {
+          const diff = countInFrame - previousFrameCount.current;
+          setCumulativeCount((prev) => {
+            const next = prev + diff;
+            const today = new Date().toDateString();
+            localStorage.setItem("transitintel_passenger_current", JSON.stringify({ date: today, count: next }));
+            if (onCountUpdate) {
+              onCountUpdate(next);
+            }
+            return next;
+          });
+        }
+        previousFrameCount.current = countInFrame;
+      } catch (e) {
+        // Ignore single frame inference errors
+      } finally {
+        isDetectingRef.current = false;
+      }
+    };
+
+    // Smooth 60 FPS Canvas overlay drawing loop
+    const renderCanvasOverlay = () => {
       if (videoRef.current && canvasRef.current && videoRef.current.readyState >= 2) {
         const video = videoRef.current;
         const canvas = canvasRef.current;
@@ -163,70 +215,40 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
             canvas.height = video.videoHeight || 480;
           }
 
-          if (modelRef.current) {
-            try {
-              const predictions = await modelRef.current.detect(video);
-              const persons = predictions.filter((p) => p.class === "person");
-              const countInFrame = persons.length;
-              
-              setCurrentFrameCount(countInFrame);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-              if (countInFrame > previousFrameCount.current) {
-                const diff = countInFrame - previousFrameCount.current;
-                setCumulativeCount((prev) => {
-                  const next = prev + diff;
-                  const today = new Date().toDateString();
-                  localStorage.setItem("transitintel_passenger_current", JSON.stringify({ date: today, count: next }));
-                  if (onCountUpdate) {
-                    onCountUpdate(next);
-                  }
-                  return next;
-                });
-              }
-              previousFrameCount.current = countInFrame;
+          latestPredictionsRef.current.forEach((person) => {
+            const [x, y, width, height] = person.bbox;
+            
+            ctx.strokeStyle = "#10b981";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, width, height);
 
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              
-              persons.forEach((person) => {
-                const [x, y, width, height] = person.bbox;
-                
-                ctx.strokeStyle = "#10b981";
-                ctx.lineWidth = 3;
-                ctx.strokeRect(x, y, width, height);
+            ctx.fillStyle = "#10b981";
+            ctx.fillRect(x, Math.max(0, y - 22), width, 22);
 
-                ctx.fillStyle = "#10b981";
-                ctx.fillRect(x, Math.max(0, y - 22), width, 22);
-
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "bold 13px sans-serif";
-                ctx.fillText(
-                  `Passenger (${Math.round(person.score * 100)}%)`,
-                  x + 4,
-                  Math.max(14, y - 6)
-                );
-              });
-            } catch (error) {
-              console.error("Detection error:", error);
-            }
-          }
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 13px sans-serif";
+            ctx.fillText(
+              `Passenger (${Math.round(person.score * 100)}%)`,
+              x + 4,
+              Math.max(14, y - 6)
+            );
+          });
         }
       }
-
-      animationFrameId = requestAnimationFrame(detectFrame);
+      renderFrameId = requestAnimationFrame(renderCanvasOverlay);
     };
 
     startCamera();
 
     return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
+      if (renderFrameId) cancelAnimationFrame(renderFrameId);
+      if (detectionInterval) clearInterval(detectionInterval);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
       if (videoRef.current && videoRef.current.srcObject) {
         const vStream = videoRef.current.srcObject as MediaStream;
-        vStream.getTracks().forEach((track) => track.stop());
+        vStream.getTracks().forEach((t) => t.stop());
         videoRef.current.srcObject = null;
       }
     };
@@ -239,7 +261,7 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
         <div className="flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 backdrop-blur-md border border-white/10 pointer-events-auto">
           <div className={`h-2.5 w-2.5 rounded-full ${cameraError ? 'bg-red-500' : isModelLoading ? 'bg-yellow-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
           <span className="text-xs font-semibold text-white">
-            {cameraError ? "Camera Offline" : isModelLoading ? "AI Engine Loading..." : "Live Feed Active"}
+            {cameraError ? "Camera Offline" : isModelLoading ? "AI Engine Loading..." : "60 FPS Live Feed"}
           </span>
         </div>
 
