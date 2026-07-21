@@ -56,21 +56,12 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
           console.warn("enumerateDevices() not supported.");
           return;
         }
-        // Ask for permissions first to get device labels
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-          stream.getTracks().forEach(track => track.stop());
-        } catch (e) {
-          console.warn("Initial camera permission for device labels failed.", e);
-        }
-
         const mediaDevices = await navigator.mediaDevices.enumerateDevices();
         const videoInputDevices = mediaDevices.filter(device => device.kind === "videoinput");
         setDevices(videoInputDevices);
         
-        // If we don't have a selected device but we found some, select the first one
-        if (videoInputDevices.length > 0) {
-          setSelectedDeviceId(prev => prev || videoInputDevices[0].deviceId);
+        if (videoInputDevices.length > 0 && !selectedDeviceId) {
+          setSelectedDeviceId(videoInputDevices[0].deviceId);
         }
       } catch (err) {
         console.error("Error enumerating devices:", err);
@@ -80,227 +71,222 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
     getDevices();
     navigator.mediaDevices?.addEventListener("devicechange", getDevices);
     return () => {
-       navigator.mediaDevices?.removeEventListener("devicechange", getDevices);
+      navigator.mediaDevices?.removeEventListener("devicechange", getDevices);
     };
-  }, []);
+  }, [selectedDeviceId]);
 
-  // 2. Initialize Model
+  // 2. Initialize TensorFlow AI Model in background
   useEffect(() => {
+    let isMounted = true;
     const initModel = async () => {
       try {
         await tf.ready();
-        modelRef.current = await cocoSsd.load();
-        setIsModelLoading(false);
+        const loadedModel = await cocoSsd.load({ base: "lite_mobilenet_v2" });
+        if (isMounted) {
+          modelRef.current = loadedModel;
+          setIsModelLoading(false);
+        }
       } catch (err) {
         console.error("Model Load Error:", err);
-        setModelError("Failed to initialize AI model.");
+        if (isMounted) {
+          setIsModelLoading(false);
+          setModelError("AI Model failed to load (using default video feed)");
+        }
       }
     };
     initModel();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // 3. Start Camera and Detection
+  // 3. Start Camera and Detection Loop
   useEffect(() => {
     let animationFrameId: number;
+    let stream: MediaStream | null = null;
 
-    const startCameraAndDetect = async () => {
-      if (!selectedDeviceId) return;
-      
+    const startCamera = async () => {
       try {
         setCameraError(null);
         
-        const videoConstraints = {
-           deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined
-        };
+        const videoConstraints: MediaTrackConstraints = selectedDeviceId
+          ? { deviceId: { ideal: selectedDeviceId } }
+          : { facingMode: "user" };
 
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: videoConstraints,
-          audio: false,
-        });
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current?.play();
-            // Start detection loop if model is ready
-            if (!isModelLoading && modelRef.current) {
-              detectFrame();
-            } else {
-              const checkModelReady = setInterval(() => {
-                if (modelRef.current && !isModelLoading) {
-                   clearInterval(checkModelReady);
-                   detectFrame();
-                }
-              }, 500);
-            }
-          };
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraints,
+            audio: false,
+          });
+        } catch (e) {
+          // Fallback to simple video
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
-      } catch (err) {
-        console.error("Camera Error:", err);
-        if (err instanceof Error) {
-          if (err.name === "NotAllowedError") {
-            setCameraError("Camera permission denied. Please allow access.");
-          } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-            setCameraError("Camera not found.");
-          } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
-            setCameraError("Camera in use by another application.");
-          } else {
-            setCameraError(`Camera Error: ${err.message}`);
+
+        if (videoRef.current && stream) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(console.warn);
+
+          // Enumerate devices after permission granted to get proper camera labels
+          if (navigator.mediaDevices?.enumerateDevices) {
+            const mediaDevices = await navigator.mediaDevices.enumerateDevices();
+            const videoInputDevices = mediaDevices.filter(d => d.kind === "videoinput");
+            setDevices(videoInputDevices);
           }
+
+          // Start detection loop
+          detectFrame();
+        }
+      } catch (err: any) {
+        console.error("Camera Error:", err);
+        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+          setCameraError("Camera permission denied. Please allow browser camera access in site settings.");
+        } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+          setCameraError("No webcam found on this PC.");
+        } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+          setCameraError("Camera is currently used by another app (e.g. Zoom, Teams).");
+        } else {
+          setCameraError(`Camera Error: ${err.message || "Failed to start camera"}`);
         }
       }
     };
 
     const detectFrame = async () => {
-      if (
-        !videoRef.current ||
-        !canvasRef.current ||
-        !modelRef.current ||
-        videoRef.current.readyState !== 4
-      ) {
-        animationFrameId = requestAnimationFrame(detectFrame);
-        return;
-      }
+      if (videoRef.current && canvasRef.current && videoRef.current.readyState >= 2) {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
 
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d");
+        if (ctx) {
+          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+          }
 
-      if (!ctx) return;
+          if (modelRef.current) {
+            try {
+              const predictions = await modelRef.current.detect(video);
+              const persons = predictions.filter((p) => p.class === "person");
+              const countInFrame = persons.length;
+              
+              setCurrentFrameCount(countInFrame);
 
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+              if (countInFrame > previousFrameCount.current) {
+                const diff = countInFrame - previousFrameCount.current;
+                setCumulativeCount((prev) => {
+                  const next = prev + diff;
+                  const today = new Date().toDateString();
+                  localStorage.setItem("transitintel_passenger_current", JSON.stringify({ date: today, count: next }));
+                  if (onCountUpdate) {
+                    onCountUpdate(next);
+                  }
+                  return next;
+                });
+              }
+              previousFrameCount.current = countInFrame;
 
-      try {
-        const predictions = await modelRef.current.detect(video);
-        
-        const persons = predictions.filter((p) => p.class === "person");
-        const countInFrame = persons.length;
-        
-        setCurrentFrameCount(countInFrame);
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              
+              persons.forEach((person) => {
+                const [x, y, width, height] = person.bbox;
+                
+                ctx.strokeStyle = "#10b981";
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, y, width, height);
 
-        if (countInFrame > previousFrameCount.current) {
-          const diff = countInFrame - previousFrameCount.current;
-          setCumulativeCount(prev => {
-            const next = prev + diff;
-            const today = new Date().toDateString();
-            localStorage.setItem("transitintel_passenger_current", JSON.stringify({ date: today, count: next }));
-            if (onCountUpdate) {
-              onCountUpdate(next);
+                ctx.fillStyle = "#10b981";
+                ctx.fillRect(x, Math.max(0, y - 22), width, 22);
+
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 13px sans-serif";
+                ctx.fillText(
+                  `Passenger (${Math.round(person.score * 100)}%)`,
+                  x + 4,
+                  Math.max(14, y - 6)
+                );
+              });
+            } catch (error) {
+              console.error("Detection error:", error);
             }
-            return next;
-          });
+          }
         }
-        previousFrameCount.current = countInFrame;
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        persons.forEach((person) => {
-          const [x, y, width, height] = person.bbox;
-          
-          ctx.strokeStyle = "#10b981";
-          ctx.lineWidth = 4;
-          ctx.strokeRect(x, y, width, height);
-
-          ctx.fillStyle = "#10b981";
-          ctx.fillRect(x, y - 24, width, 24);
-
-          ctx.fillStyle = "#ffffff";
-          ctx.font = "bold 16px sans-serif";
-          ctx.fillText(
-            `Passenger (${Math.round(person.score * 100)}%)`,
-            x + 4,
-            y - 6
-          );
-        });
-      } catch (error) {
-        console.error("Detection error:", error);
       }
 
-      setTimeout(() => {
-        animationFrameId = requestAnimationFrame(detectFrame);
-      }, 300); 
+      animationFrameId = requestAnimationFrame(detectFrame);
     };
 
-    startCameraAndDetect();
+    startCamera();
 
     return () => {
       if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
       }
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
+      if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
+      if (videoRef.current && videoRef.current.srcObject) {
+        const vStream = videoRef.current.srcObject as MediaStream;
+        vStream.getTracks().forEach((track) => track.stop());
+        videoRef.current.srcObject = null;
+      }
     };
-  }, [selectedDeviceId, isModelLoading, onCountUpdate]);
+  }, [selectedDeviceId, onCountUpdate]);
 
   return (
     <div className="relative overflow-hidden rounded-xl bg-black border border-surface-200 dark:border-white/10 shadow-lg">
-      <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
-        <div className="flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 backdrop-blur-md">
-          <div className={`h-2 w-2 rounded-full ${cameraError ? 'bg-red-500' : isModelLoading ? 'bg-yellow-500 animate-pulse' : 'bg-emerald-500'}`} />
-          <span className="text-sm font-medium text-white">
-            {cameraError ? "Camera Error" : isModelLoading ? "Loading AI Engine..." : "Live Feed"}
+      {/* Top Floating Bar */}
+      <div className="absolute top-3 left-3 right-3 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+        <div className="flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 backdrop-blur-md border border-white/10 pointer-events-auto">
+          <div className={`h-2.5 w-2.5 rounded-full ${cameraError ? 'bg-red-500' : isModelLoading ? 'bg-yellow-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
+          <span className="text-xs font-semibold text-white">
+            {cameraError ? "Camera Offline" : isModelLoading ? "AI Engine Loading..." : "Live Feed Active"}
           </span>
         </div>
 
-        {devices.length > 0 && (
-          <div className="flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 backdrop-blur-md border border-white/10">
-            <span className="text-xs text-white/70">Camera:</span>
+        {devices.length > 1 && (
+          <div className="flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 backdrop-blur-md border border-white/10 pointer-events-auto">
+            <span className="text-xs text-white/70">Cam:</span>
             <select
-              className="bg-transparent text-sm font-medium text-white outline-none w-32 truncate appearance-none cursor-pointer"
+              className="bg-transparent text-xs font-medium text-white outline-none w-28 truncate cursor-pointer"
               value={selectedDeviceId}
               onChange={(e) => setSelectedDeviceId(e.target.value)}
             >
               {devices.map((device, index) => (
-                <option key={device.deviceId} value={device.deviceId} className="text-black">
+                <option key={device.deviceId || index} value={device.deviceId} className="text-black">
                   {device.label || `Camera ${index + 1}`}
                 </option>
               ))}
             </select>
           </div>
         )}
-        
-        {!isModelLoading && !cameraError && (
-          <div className="flex gap-4">
-            <div className="rounded-xl bg-black/60 p-4 backdrop-blur-md border border-white/10">
-              <p className="text-xs text-white/70 uppercase tracking-wider font-semibold mb-1">Total Today</p>
-              <p className="text-3xl font-bold text-emerald-400">{cumulativeCount}</p>
-            </div>
-            <div className="rounded-xl bg-black/60 p-4 backdrop-blur-md border border-white/10">
-              <p className="text-xs text-white/70 uppercase tracking-wider font-semibold mb-1">In Frame</p>
-              <p className="text-3xl font-bold text-white/90">{currentFrameCount}</p>
-            </div>
-          </div>
-        )}
       </div>
 
-      {cameraError || modelError ? (
-        <div className="flex aspect-video w-full flex-col items-center justify-center bg-surface-900 p-6 text-center">
-          <span className="text-4xl mb-4">📷</span>
-          <p className="text-red-400 font-medium">{cameraError || modelError}</p>
+      {cameraError ? (
+        <div className="flex aspect-video w-full flex-col items-center justify-center bg-surface-900 p-6 text-center text-white">
+          <span className="text-4xl mb-3">📷</span>
+          <p className="text-red-400 font-semibold text-sm max-w-md">{cameraError}</p>
+          <p className="text-xs text-white/50 mt-2">
+            Please make sure your webcam is plugged in and allowed in your browser settings.
+          </p>
         </div>
       ) : (
-        <div className="relative aspect-video w-full bg-surface-900">
+        <div className="relative aspect-video w-full bg-black flex items-center justify-center">
           <video
             ref={videoRef}
             className="absolute inset-0 h-full w-full object-cover"
+            autoPlay
             playsInline
             muted
           />
           <canvas
             ref={canvasRef}
-            className="absolute inset-0 h-full w-full object-cover pointer-events-none"
+            className="absolute inset-0 h-full w-full object-cover pointer-events-none z-10"
           />
           
-          {isModelLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-              <div className="flex flex-col items-center text-white">
-                <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-emerald-500 border-t-transparent" />
-                <p className="font-semibold text-lg">Initializing AI Vision Model</p>
-                <p className="text-sm text-white/50 mt-1">Downloading COCO-SSD parameters...</p>
-              </div>
+          {isModelLoading && !cameraError && (
+            <div className="absolute top-14 left-4 z-20 flex items-center gap-2 bg-black/70 border border-white/10 px-3 py-1.5 rounded-lg text-xs text-amber-300 backdrop-blur-md">
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
+              <span>AI passenger detection initializing...</span>
             </div>
           )}
         </div>
