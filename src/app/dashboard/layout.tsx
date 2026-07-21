@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import { useSession, signOut } from "next-auth/react";
 import { NAVIGATION } from "@/lib/constants";
 import { SocketProvider } from "@/lib/socket-provider";
 
@@ -88,12 +89,6 @@ const icons: Record<string, React.ReactNode> = {
   ),
 };
 
-interface SessionUser {
-  name: string;
-  email: string;
-  role: string;
-  organizationName: string;
-}
 
 export default function DashboardLayout({
   children,
@@ -102,36 +97,28 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { data: session, status } = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [user, setUser] = useState<SessionUser | null>(null);
   const [darkMode, setDarkMode] = useState(true);
 
   useEffect(() => {
-    const session = localStorage.getItem("transitintel_session");
-    if (!session) {
-      router.push("/login");
-      return;
-    }
-    try {
-      const parsed = JSON.parse(session);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setUser(parsed.user);
-    } catch {
+    if (status === "unauthenticated") {
       router.push("/login");
     }
-  }, [router]);
+  }, [status, router]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
 
   const handleLogout = () => {
-    localStorage.removeItem("transitintel_session");
-    router.push("/login");
+    signOut({ callbackUrl: "/login" });
   };
 
-  if (!user) {
+  const user = session?.user as { name?: string | null; email?: string | null; role?: string; organizationName?: string } | undefined;
+
+  if (status === "loading" || !user) {
     return (
       <div className="dark flex h-screen items-center justify-center bg-surface-950">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
@@ -243,7 +230,7 @@ export default function DashboardLayout({
                   )?.title || "Dashboard"}
                 </h2>
                 <p className="text-xs text-surface-800/40 dark:text-white/30">
-                  {user.organizationName}
+                  {user.organizationName || "TransitIntel"}
                 </p>
               </div>
             </div>
@@ -279,10 +266,10 @@ export default function DashboardLayout({
               <div className="flex items-center gap-3 border-l border-surface-200 pl-3 dark:border-white/10">
                 <div className="hidden text-right sm:block">
                   <p className="text-sm font-medium text-surface-900 dark:text-white">
-                    {user.name}
+                    {user.name || "User"}
                   </p>
                   <p className="text-xs text-surface-800/40 dark:text-white/30">
-                    {user.role.replace("_", " ")}
+                    {(user.role || "VIEWER").replace("_", " ")}
                   </p>
                 </div>
                 <button
@@ -290,7 +277,7 @@ export default function DashboardLayout({
                   className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-500/10 text-sm font-bold text-brand-500 transition hover:bg-brand-500/20"
                   title="Sign out"
                 >
-                  {user.name
+                  {(user.name || "U")
                     .split(" ")
                     .map((n) => n[0])
                     .join("")

@@ -11,7 +11,11 @@ interface WebcamAIProps {
 export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
   
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+
   const [isModelLoading, setIsModelLoading] = useState(true);
   const [modelError, setModelError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -44,44 +48,105 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
     }
   }, []);
 
+  // 1. Fetch available cameras
   useEffect(() => {
-    let animationFrameId: number;
-    let model: cocoSsd.ObjectDetection;
-
-    const setupAI = async () => {
+    const getDevices = async () => {
       try {
-        // Force tfjs backend initialization
-        await tf.ready();
-        
-        // Load the model
-        model = await cocoSsd.load();
-        setIsModelLoading(false);
+        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+          console.warn("enumerateDevices() not supported.");
+          return;
+        }
+        // Ask for permissions first to get device labels
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          stream.getTracks().forEach(track => track.stop());
+        } catch (e) {
+          console.warn("Initial camera permission for device labels failed.", e);
+        }
 
-        // Start camera
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user" },
-            audio: false,
-          });
-          
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            
-            // Wait for video to be ready before starting detection loop
-            videoRef.current.onloadedmetadata = () => {
-              videoRef.current?.play();
-              detectFrame();
-            };
-          }
-        } else {
-          setCameraError("Webcam not supported in this browser.");
+        const mediaDevices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputDevices = mediaDevices.filter(device => device.kind === "videoinput");
+        setDevices(videoInputDevices);
+        
+        // If we don't have a selected device but we found some, select the first one
+        if (videoInputDevices.length > 0) {
+          setSelectedDeviceId(prev => prev || videoInputDevices[0].deviceId);
         }
       } catch (err) {
-        console.error("AI Initialization Error:", err);
-        if (err instanceof Error && err.name === "NotAllowedError") {
-          setCameraError("Camera permission denied. Please allow camera access.");
-        } else {
-          setModelError("Failed to initialize AI model or camera.");
+        console.error("Error enumerating devices:", err);
+      }
+    };
+
+    getDevices();
+    navigator.mediaDevices?.addEventListener("devicechange", getDevices);
+    return () => {
+       navigator.mediaDevices?.removeEventListener("devicechange", getDevices);
+    };
+  }, []);
+
+  // 2. Initialize Model
+  useEffect(() => {
+    const initModel = async () => {
+      try {
+        await tf.ready();
+        modelRef.current = await cocoSsd.load();
+        setIsModelLoading(false);
+      } catch (err) {
+        console.error("Model Load Error:", err);
+        setModelError("Failed to initialize AI model.");
+      }
+    };
+    initModel();
+  }, []);
+
+  // 3. Start Camera and Detection
+  useEffect(() => {
+    let animationFrameId: number;
+
+    const startCameraAndDetect = async () => {
+      if (!selectedDeviceId) return;
+      
+      try {
+        setCameraError(null);
+        
+        const videoConstraints = {
+           deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: videoConstraints,
+          audio: false,
+        });
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play();
+            // Start detection loop if model is ready
+            if (!isModelLoading && modelRef.current) {
+              detectFrame();
+            } else {
+              const checkModelReady = setInterval(() => {
+                if (modelRef.current && !isModelLoading) {
+                   clearInterval(checkModelReady);
+                   detectFrame();
+                }
+              }, 500);
+            }
+          };
+        }
+      } catch (err) {
+        console.error("Camera Error:", err);
+        if (err instanceof Error) {
+          if (err.name === "NotAllowedError") {
+            setCameraError("Camera permission denied. Please allow access.");
+          } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+            setCameraError("Camera not found.");
+          } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+            setCameraError("Camera in use by another application.");
+          } else {
+            setCameraError(`Camera Error: ${err.message}`);
+          }
         }
       }
     };
@@ -90,6 +155,7 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
       if (
         !videoRef.current ||
         !canvasRef.current ||
+        !modelRef.current ||
         videoRef.current.readyState !== 4
       ) {
         animationFrameId = requestAnimationFrame(detectFrame);
@@ -102,15 +168,12 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
 
       if (!ctx) return;
 
-      // Ensure canvas matches video dimensions exactly
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
       try {
-        // Detect objects
-        const predictions = await model.detect(video);
+        const predictions = await modelRef.current.detect(video);
         
-        // Filter for "person" class
         const persons = predictions.filter((p) => p.class === "person");
         const countInFrame = persons.length;
         
@@ -130,22 +193,18 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
         }
         previousFrameCount.current = countInFrame;
 
-        // Draw bounding boxes
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
         persons.forEach((person) => {
           const [x, y, width, height] = person.bbox;
           
-          // Draw Box
-          ctx.strokeStyle = "#10b981"; // Emerald 500
+          ctx.strokeStyle = "#10b981";
           ctx.lineWidth = 4;
           ctx.strokeRect(x, y, width, height);
 
-          // Draw background for text
           ctx.fillStyle = "#10b981";
           ctx.fillRect(x, y - 24, width, 24);
 
-          // Draw Label
           ctx.fillStyle = "#ffffff";
           ctx.font = "bold 16px sans-serif";
           ctx.fillText(
@@ -158,16 +217,14 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
         console.error("Detection error:", error);
       }
 
-      // Loop with a delay to prevent freezing the browser
       setTimeout(() => {
         animationFrameId = requestAnimationFrame(detectFrame);
-      }, 300); // Throttle to ~3 frames per second
+      }, 300); 
     };
 
-    setupAI();
+    startCameraAndDetect();
 
     return () => {
-      // Cleanup
       if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
       }
@@ -176,7 +233,7 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
         stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [onCountUpdate]);
+  }, [selectedDeviceId, isModelLoading, onCountUpdate]);
 
   return (
     <div className="relative overflow-hidden rounded-xl bg-black border border-surface-200 dark:border-white/10 shadow-lg">
@@ -187,6 +244,23 @@ export function WebcamAI({ onCountUpdate }: WebcamAIProps) {
             {cameraError ? "Camera Error" : isModelLoading ? "Loading AI Engine..." : "Live Feed"}
           </span>
         </div>
+
+        {devices.length > 0 && (
+          <div className="flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 backdrop-blur-md border border-white/10">
+            <span className="text-xs text-white/70">Camera:</span>
+            <select
+              className="bg-transparent text-sm font-medium text-white outline-none w-32 truncate appearance-none cursor-pointer"
+              value={selectedDeviceId}
+              onChange={(e) => setSelectedDeviceId(e.target.value)}
+            >
+              {devices.map((device, index) => (
+                <option key={device.deviceId} value={device.deviceId} className="text-black">
+                  {device.label || `Camera ${index + 1}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         
         {!isModelLoading && !cameraError && (
           <div className="flex gap-4">

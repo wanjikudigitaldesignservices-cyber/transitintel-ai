@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { signIn } from "next-auth/react";
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -17,25 +19,23 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // For demo: accept any credentials
-      if (email && password.length >= 6) {
-        // Store demo session
-        localStorage.setItem(
-          "transitintel_session",
-          JSON.stringify({
-            user: {
-              id: "demo-user-1",
-              email,
-              name: email.split("@")[0],
-              role: "ADMIN",
-              organizationId: "demo-org-1",
-              organizationName: "Demo Transport Co.",
-            },
-          })
-        );
-        router.push("/dashboard");
-      } else {
+      if (!email || password.length < 6) {
         setError("Please enter valid email and password (min 6 characters)");
+        setLoading(false);
+        return;
+      }
+
+      const res = await signIn("credentials", {
+        redirect: false,
+        email,
+        password,
+      });
+
+      if (res?.error) {
+        setError("Invalid email or password");
+      } else {
+        router.push("/dashboard");
+        router.refresh();
       }
     } catch {
       setError("An error occurred. Please try again.");
@@ -186,14 +186,6 @@ export default function LoginPage() {
               Create one
             </Link>
           </p>
-
-          {/* Demo credentials hint */}
-          <div className="mt-6 rounded-lg border border-white/5 bg-white/[0.02] p-4 text-center">
-            <p className="text-xs text-white/30">
-              <span className="font-semibold text-brand-400/70">Demo Mode:</span>{" "}
-              Enter any email and password (6+ chars) to explore the dashboard
-            </p>
-          </div>
         </div>
       </div>
     </div>

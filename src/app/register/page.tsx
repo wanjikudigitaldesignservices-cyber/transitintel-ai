@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { signIn } from "next-auth/react";
+
 export default function RegisterPage() {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -26,30 +28,48 @@ export default function RegisterPage() {
 
     try {
       if (
-        form.name &&
-        form.email &&
-        form.password.length >= 6 &&
-        form.organizationName
+        !form.name ||
+        !form.email ||
+        form.password.length < 6 ||
+        !form.organizationName
       ) {
-        localStorage.setItem(
-          "transitintel_session",
-          JSON.stringify({
-            user: {
-              id: "demo-user-1",
-              email: form.email,
-              name: form.name,
-              role: "ADMIN",
-              organizationId: "demo-org-1",
-              organizationName: form.organizationName,
-            },
-          })
-        );
-        router.push("/dashboard");
-      } else {
-        setError("Please fill in all required fields");
+        setError("Please fill in all required fields (password min 6 chars)");
+        setLoading(false);
+        return;
       }
-    } catch {
-      setError("An error occurred. Please try again.");
+
+      // Hit our new real API
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          saccoName: form.organizationName,
+          adminName: form.name,
+          email: form.email,
+          password: form.password,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || "Failed to register");
+      }
+
+      // Automatically log them in after successful registration
+      const signInResult = await signIn("credentials", {
+        redirect: false,
+        email: form.email,
+        password: form.password,
+      });
+
+      if (signInResult?.error) {
+        throw new Error(signInResult.error);
+      }
+
+      router.push("/dashboard");
+      router.refresh();
+    } catch (err: any) {
+      setError(err.message || "An error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
