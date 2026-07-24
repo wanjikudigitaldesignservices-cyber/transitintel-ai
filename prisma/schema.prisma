@@ -90,15 +90,15 @@ enum UserRole {
 
 model Vehicle {
   id               String        @id @default(cuid())
-  registrationNo   String        @unique
-  fleetNumber       String?
+  registrationNo   String
+  fleetNumber      String?
   make             String
   model            String
   year             Int
   type             VehicleType   @default(BUS)
   capacity         Int
   fuelType         FuelType      @default(DIESEL)
-  chassisNumber    String?       @unique
+  chassisNumber    String?
   engineNumber     String?
   color            String?
   insuranceExpiry  DateTime?
@@ -123,6 +123,7 @@ model Vehicle {
   passengerCounts  PassengerCount[]
   alerts           Alert[]
 
+  @@unique([organizationId, registrationNo])
   @@index([organizationId])
   @@index([status])
   @@index([registrationNo])
@@ -160,15 +161,15 @@ enum FuelType {
 
 model Driver {
   id              String       @id @default(cuid())
-  employeeId      String       @unique
+  employeeId      String
   firstName       String
   lastName        String
   email           String?
   phone           String
-  licenseNumber   String       @unique
+  licenseNumber   String
   licenseClass    String
   licenseExpiry   DateTime
-  nationalId      String?      @unique
+  nationalId      String?
   dateOfBirth     DateTime?
   address         String?
   emergencyContact String?
@@ -188,6 +189,8 @@ model Driver {
   assignments     Assignment[]
   trips           Trip[]
 
+  @@unique([organizationId, employeeId])
+  @@unique([organizationId, licenseNumber])
   @@index([organizationId])
   @@index([status])
   @@index([licenseNumber])
@@ -208,12 +211,12 @@ enum DriverStatus {
 
 model Conductor {
   id              String          @id @default(cuid())
-  employeeId      String          @unique
+  employeeId      String
   firstName       String
   lastName        String
   email           String?
   phone           String
-  nationalId      String?         @unique
+  nationalId      String?
   dateOfBirth     DateTime?
   address         String?
   photo           String?
@@ -232,6 +235,7 @@ model Conductor {
   trips           Trip[]
   revenue         RevenueRecord[]
 
+  @@unique([organizationId, employeeId])
   @@index([organizationId])
   @@index([status])
   @@map("conductors")
@@ -251,7 +255,7 @@ enum ConductorStatus {
 
 model Route {
   id              String      @id @default(cuid())
-  code            String      @unique
+  code            String
   name            String
   description     String?
   origin          String
@@ -273,6 +277,7 @@ model Route {
   trips           Trip[]
   assignments     Assignment[]
 
+  @@unique([organizationId, code])
   @@index([organizationId])
   @@index([status])
   @@map("routes")

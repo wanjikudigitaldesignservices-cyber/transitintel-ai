@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 
 /**
  * Validate request body against a Zod schema.
@@ -39,7 +40,7 @@ export async function validateBody<T extends z.ZodTypeAny>(
 }
 
 /**
- * Return a safe error response — never leak internal details.
+ * Return a safe error response — handle known database errors gracefully.
  */
 export function safeErrorResponse(
   error: unknown,
@@ -48,7 +49,21 @@ export function safeErrorResponse(
   // Log full error server-side
   console.error(`[${context}]`, error);
 
-  // Never return internal error details to client
+  // Handle Prisma unique constraint violation (P2002)
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  ) {
+    const targetFields = Array.isArray(error.meta?.target)
+      ? (error.meta?.target as string[]).join(", ")
+      : "record identifier";
+    return NextResponse.json(
+      { message: `A record with this ${targetFields} already exists.` },
+      { status: 400 }
+    );
+  }
+
+  // Never return internal error details to client for unexpected errors
   return NextResponse.json(
     { message: "An internal error occurred. Please try again." },
     { status: 500 }

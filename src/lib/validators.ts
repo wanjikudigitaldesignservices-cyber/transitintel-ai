@@ -32,12 +32,12 @@ export const vehicleSchema = z.object({
   fleetNumber: z.string().optional(),
   make: z.string().min(1, "Vehicle make is required"),
   model: z.string().min(1, "Vehicle model is required"),
-  year: z
+  year: z.coerce
     .number()
     .min(1990, "Year must be 1990 or later")
     .max(new Date().getFullYear() + 1, "Invalid year"),
   type: z.enum(["BUS", "MINIBUS", "MATATU", "COACH", "SHUTTLE", "VAN"]),
-  capacity: z.number().min(1, "Capacity must be at least 1").max(200),
+  capacity: z.coerce.number().min(1, "Capacity must be at least 1").max(200),
   fuelType: z.enum(["DIESEL", "PETROL", "ELECTRIC", "HYBRID", "CNG"]),
   chassisNumber: z.string().optional(),
   engineNumber: z.string().optional(),
@@ -52,7 +52,7 @@ export const vehicleSchema = z.object({
     "SUSPENDED",
   ]),
   purchaseDate: z.string().optional(),
-  purchasePrice: z.number().optional(),
+  purchasePrice: z.coerce.number().optional(),
   notes: z.string().optional(),
 });
 
@@ -84,11 +84,11 @@ export const driverSchema = z.object({
 
 export const routeStopSchema = z.object({
   name: z.string().min(1, "Stop name is required"),
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
-  sequence: z.number().min(0),
-  fareFromOrigin: z.number().min(0),
-  estimatedTimeFromOrigin: z.number().min(0),
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180),
+  sequence: z.coerce.number().min(0),
+  fareFromOrigin: z.coerce.number().min(0),
+  estimatedTimeFromOrigin: z.coerce.number().min(0),
   isTerminal: z.boolean(),
 });
 
@@ -98,9 +98,9 @@ export const routeSchema = z.object({
   description: z.string().optional(),
   origin: z.string().min(1, "Origin is required"),
   destination: z.string().min(1, "Destination is required"),
-  distance: z.number().min(0).optional(),
-  estimatedTime: z.number().min(0).optional(),
-  baseFare: z.number().min(0, "Base fare must be positive"),
+  distance: z.coerce.number().min(0).optional(),
+  estimatedTime: z.coerce.number().min(0).optional(),
+  baseFare: z.coerce.number().min(0, "Base fare must be positive"),
   status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED", "PLANNED"]),
   color: z.string().optional(),
   stops: z.array(routeStopSchema).optional(),
@@ -128,11 +128,11 @@ export const conductorSchema = z.object({
 // ============================================================================
 
 export const revenueSchema = z.object({
-  amount: z.number().min(0, "Amount must be positive"),
+  amount: z.coerce.number().min(0, "Amount must be positive"),
   paymentMethod: z.enum(["CASH", "MPESA", "CARD", "NFC", "QR_CODE", "PREPAID"]),
   category: z.enum(["FARE", "LUGGAGE", "PENALTY", "OTHER"]),
-  passengerCount: z.number().min(0).optional(),
-  farePerPassenger: z.number().min(0).optional(),
+  passengerCount: z.coerce.number().min(0).optional(),
+  farePerPassenger: z.coerce.number().min(0).optional(),
   reference: z.string().optional(),
   tripId: z.string().optional(),
   conductorId: z.string().optional(),
@@ -162,9 +162,9 @@ export const maintenanceSchema = z.object({
   status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "OVERDUE"]),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
   scheduledDate: z.string().optional(),
-  cost: z.number().min(0).optional(),
-  laborCost: z.number().min(0).optional(),
-  partsCost: z.number().min(0).optional(),
+  cost: z.coerce.number().min(0).optional(),
+  laborCost: z.coerce.number().min(0).optional(),
+  partsCost: z.coerce.number().min(0).optional(),
   vendor: z.string().optional(),
   vehicleId: z.string().min(1, "Vehicle is required"),
   notes: z.string().optional(),
@@ -176,10 +176,10 @@ export const maintenanceSchema = z.object({
 
 export const fuelRecordSchema = z.object({
   fuelType: z.enum(["DIESEL", "PETROL", "ELECTRIC", "HYBRID", "CNG"]),
-  quantity: z.number().min(0, "Quantity must be positive"),
-  unitPrice: z.number().min(0, "Unit price must be positive"),
-  totalCost: z.number().min(0, "Total cost must be positive"),
-  odometer: z.number().min(0).optional(),
+  quantity: z.coerce.number().min(0, "Quantity must be positive"),
+  unitPrice: z.coerce.number().min(0, "Unit price must be positive"),
+  totalCost: z.coerce.number().min(0, "Total cost must be positive"),
+  odometer: z.coerce.number().min(0).optional(),
   station: z.string().optional(),
   receiptNumber: z.string().optional(),
   date: z.string().min(1, "Date is required"),
