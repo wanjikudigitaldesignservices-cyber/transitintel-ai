@@ -155,7 +155,7 @@ export default function PrivacyPage() {
           </p>
           <div className="pt-2 text-sm">
             <p className="font-semibold text-white">LQDCREATIVES AFRICA — Data Protection Officer</p>
-            <p className="text-brand-300">Email: wanjikudigitaldesignservices@gmail.com</p>
+            <p className="text-brand-300">Email: dpo@transitintel.ai</p>
             <p className="text-surface-400">Nairobi, Kenya</p>
           </div>
         </section>
@@ -169,6 +169,7 @@ export default function PrivacyPage() {
             <Link href="/" className="hover:text-white">Home</Link>
             <Link href="/login" className="hover:text-white">Sign In</Link>
             <Link href="/privacy" className="text-brand-400 font-semibold">Privacy Policy</Link>
+            <Link href="/terms" className="hover:text-white">Terms of Service</Link>
           </div>
         </div>
       </footer>

@@ -48,16 +48,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // Generate a unique slug — handle collisions with a counter
+    // Generate a unique slug
     let baseSlug = slugify(organizationName);
     if (!baseSlug) baseSlug = "org";
-    let slug = baseSlug;
-    let counter = 0;
-
-    while (await prisma.organization.findUnique({ where: { slug } })) {
-      counter++;
-      slug = `${baseSlug}-${counter}`;
-    }
+    const randomSuffix = Math.random().toString(36).substring(2, 6);
+    const slug = `${baseSlug}-${randomSuffix}`;
 
     // Hash the password
     const passwordHash = await bcrypt.hash(password, 12);

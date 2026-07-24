@@ -49,17 +49,15 @@ export function safeErrorResponse(
   // Log full error server-side
   console.error(`[${context}]`, error);
 
-  // Handle Prisma unique constraint violation (P2002)
-  if (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === "P2002"
-  ) {
-    const targetFields = Array.isArray(error.meta?.target)
-      ? (error.meta?.target as string[]).join(", ")
-      : "record identifier";
+  // Handle Prisma unique constraint violation (P2002) safely using duck-typing
+  const err = error as any;
+  if (err && typeof err === "object" && err.code === "P2002") {
+    const targetFields = Array.isArray(err.meta?.target)
+      ? (err.meta.target as string[]).join(", ")
+      : err.meta?.target || "record identifier";
     return NextResponse.json(
-      { message: `A record with this ${targetFields} already exists.` },
-      { status: 400 }
+      { message: `${targetFields} already in use — try another.` },
+      { status: 409 }
     );
   }
 

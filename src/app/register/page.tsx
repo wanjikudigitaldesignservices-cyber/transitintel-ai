@@ -102,9 +102,9 @@ export default function RegisterPage() {
             </p>
             <div className="mt-8 grid grid-cols-3 gap-4">
               {[
-                { value: "10K+", label: "Vehicles Tracked" },
-                { value: "99.9%", label: "Uptime" },
-                { value: "50M+", label: "Trips Processed" },
+                { value: "Live", label: "Fleet Tracking" },
+                { value: "Smart", label: "Fraud Detection" },
+                { value: "24/7", label: "Operational Insights" },
               ].map((stat) => (
                 <div key={stat.label} className="text-center">
                   <div className="text-2xl font-bold text-brand-400">
@@ -261,8 +261,12 @@ export default function RegisterPage() {
           </p>
           <div className="mt-6 text-center text-xs text-white/30">
             By creating an account, you agree to our{" "}
+            <Link href="/terms" className="underline hover:text-white/70">
+              Terms of Service
+            </Link>{" "}
+            and{" "}
             <Link href="/privacy" className="underline hover:text-white/70">
-              Privacy Policy & ODPC Data Terms
+              Privacy Policy
             </Link>
           </div>
         </div>
