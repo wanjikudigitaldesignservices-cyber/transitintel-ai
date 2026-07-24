@@ -21,6 +21,12 @@ export interface NavItem {
 
 export const NAVIGATION: NavItem[] = [
   {
+    title: "SuperAdmin Command",
+    href: "/dashboard/admin",
+    icon: "Crown",
+    roles: ["SUPER_ADMIN"],
+  },
+  {
     title: "Dashboard",
     href: "/dashboard",
     icon: "LayoutDashboard",

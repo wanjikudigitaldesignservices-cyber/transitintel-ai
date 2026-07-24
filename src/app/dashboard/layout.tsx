@@ -87,6 +87,11 @@ const icons: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   ),
+  Crown: (
+    <svg className="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 2.625a3.375 3.375 0 00-3.75-3.375m-3.75 3.375a3.375 3.375 0 013.75-3.375m0 0a3.375 3.375 0 013.75 3.375M3 13.5l2.25-6L9 10.5l3-7.5 3 7.5 3.75-3L21 13.5H3z" />
+    </svg>
+  ),
 };
 
 
@@ -159,7 +164,7 @@ export default function DashboardLayout({
           {/* Nav Links */}
           <nav className="flex-1 overflow-y-auto px-3 py-4">
             <div className="space-y-1">
-              {NAVIGATION.map((item) => {
+              {NAVIGATION.filter((item) => !item.roles || (user.role && item.roles.includes(user.role))).map((item) => {
                 const isActive =
                   pathname === item.href ||
                   (item.href !== "/dashboard" &&
@@ -265,9 +270,16 @@ export default function DashboardLayout({
               {/* Profile */}
               <div className="flex items-center gap-3 border-l border-surface-200 pl-3 dark:border-white/10">
                 <div className="hidden text-right sm:block">
-                  <p className="text-sm font-medium text-surface-900 dark:text-white">
-                    {user.name || "User"}
-                  </p>
+                  <div className="flex items-center justify-end gap-1.5">
+                    {user.role === "SUPER_ADMIN" && (
+                      <span className="rounded bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[9px] font-black text-amber-400">
+                        👑 SUPERADMIN
+                      </span>
+                    )}
+                    <p className="text-sm font-semibold text-surface-900 dark:text-white">
+                      {user.name || "User"}
+                    </p>
+                  </div>
                   <p className="text-xs text-surface-800/40 dark:text-white/30">
                     {(user.role || "VIEWER").replace("_", " ")}
                   </p>
