@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { checkRateLimit, AUTH_RATE_LIMIT } from "@/lib/rate-limit";
-import { validateBody, safeErrorResponse } from "@/lib/api-utils";
+import { safeErrorResponse } from "@/lib/api-utils";
 import { registerSchema } from "@/lib/validators";
 import { slugify } from "@/lib/utils";
 
