@@ -109,14 +109,17 @@ export default function NotificationsPage() {
 
   // Load saved WhatsApp phone from localStorage on mount
   useEffect(() => {
-    try {
-      const savedPhone = localStorage.getItem("transitintel_whatsapp_phone");
-      if (savedPhone) {
-        setWhatsappNumber(savedPhone);
+    const loadPhone = async () => {
+      try {
+        const savedPhone = localStorage.getItem("transitintel_whatsapp_phone");
+        if (savedPhone) {
+          setWhatsappNumber(savedPhone);
+        }
+      } catch (e) {
+        console.error(e);
       }
-    } catch (e) {
-      console.error(e);
-    }
+    };
+    loadPhone();
   }, []);
 
   const saveWhatsappPhone = (phone: string) => {
