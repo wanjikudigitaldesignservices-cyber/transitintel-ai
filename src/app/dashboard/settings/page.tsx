@@ -16,14 +16,17 @@ export default function SettingsPage() {
 
   // Load saved WhatsApp phone
   useEffect(() => {
-    try {
-      const savedPhone = localStorage.getItem("transitintel_whatsapp_phone");
-      if (savedPhone) {
-        setWhatsappPhone(savedPhone);
+    const loadPhone = async () => {
+      try {
+        const savedPhone = localStorage.getItem("transitintel_whatsapp_phone");
+        if (savedPhone) {
+          setWhatsappPhone(savedPhone);
+        }
+      } catch (e) {
+        console.error(e);
       }
-    } catch (e) {
-      console.error(e);
-    }
+    };
+    loadPhone();
   }, []);
 
   const handleSaveNotificationSettings = (e: React.FormEvent) => {
