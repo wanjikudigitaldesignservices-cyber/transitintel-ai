@@ -61,7 +61,7 @@ export default function TermsPage() {
             <span className="text-brand-400">2.</span> Description of Services
           </h2>
           <p className="text-surface-300 leading-relaxed">
-            TransitIntel AI provides fleet management, real-time analytics, and passenger counting services ("Services"). We reserve the right to modify or discontinue any aspect of the Services at our discretion.
+            TransitIntel AI provides fleet management, real-time analytics, and passenger counting services (&quot;Services&quot;). We reserve the right to modify or discontinue any aspect of the Services at our discretion.
           </p>
         </section>
 
@@ -71,7 +71,7 @@ export default function TermsPage() {
             <span className="text-brand-400">3.</span> Limitation of Liability
           </h2>
           <p className="text-surface-300 leading-relaxed">
-            TransitIntel AI provides its Services "as is" and without any warranty or condition, express, implied, or statutory. We specifically disclaim any implied warranties of merchantability, fitness for a particular purpose, and non-infringement.
+            TransitIntel AI provides its Services &quot;as is&quot; and without any warranty or condition, express, implied, or statutory. We specifically disclaim any implied warranties of merchantability, fitness for a particular purpose, and non-infringement.
           </p>
           <ul className="list-disc pl-6 space-y-2 text-surface-300">
             <li>

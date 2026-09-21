@@ -19,7 +19,9 @@ export default function SettingsPage() {
     try {
       const savedPhone = localStorage.getItem("transitintel_whatsapp_phone");
       if (savedPhone) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setWhatsappPhone(savedPhone);
+
       }
     } catch (e) {
       console.error(e);
