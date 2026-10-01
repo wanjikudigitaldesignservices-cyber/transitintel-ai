@@ -112,6 +112,10 @@ export default function NotificationsPage() {
     try {
       const savedPhone = localStorage.getItem("transitintel_whatsapp_phone");
       if (savedPhone) {
+        // We're initializing state from localStorage which happens
+        // on the client side. We intentionally do this in an effect
+        // to avoid hydration mismatches, so we suppress the warning.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setWhatsappNumber(savedPhone);
       }
     } catch (e) {
