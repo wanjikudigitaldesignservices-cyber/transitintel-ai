@@ -112,7 +112,7 @@ export default function NotificationsPage() {
     try {
       const savedPhone = localStorage.getItem("transitintel_whatsapp_phone");
       if (savedPhone) {
-        setWhatsappNumber(savedPhone);
+        setTimeout(() => setWhatsappNumber(savedPhone), 0);
       }
     } catch (e) {
       console.error(e);
