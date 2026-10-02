@@ -19,7 +19,7 @@ export default function SettingsPage() {
     try {
       const savedPhone = localStorage.getItem("transitintel_whatsapp_phone");
       if (savedPhone) {
-        setWhatsappPhone(savedPhone);
+        setTimeout(() => setWhatsappPhone(savedPhone), 0);
       }
     } catch (e) {
       console.error(e);
