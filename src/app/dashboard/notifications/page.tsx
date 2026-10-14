@@ -112,6 +112,7 @@ export default function NotificationsPage() {
     try {
       const savedPhone = localStorage.getItem("transitintel_whatsapp_phone");
       if (savedPhone) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setWhatsappNumber(savedPhone);
       }
     } catch (e) {
