@@ -41,3 +41,10 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+
+# Playwright Test Reports
+/playwright-report/
+/test-results/
+
+# Local Dev Logs
+dev_server.log
